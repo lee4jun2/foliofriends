@@ -228,7 +228,7 @@ function homeB(port) {
   return col({ padding: '10px 20px 28px', background: C.card, minHeight: '100%' },
     row({ justifyContent: 'space-between', padding: '2px 0 18px' },
       txt('내 자산', { fontSize: 18, fontWeight: 800, color: C.t1, whiteSpace: 'nowrap' }),
-      row({ gap: 8 }, eyeBtn(), iconBtn('share', () => goTab('feed')))),
+      row({ gap: 8 }, eyeBtn(), iconBtn('share', () => goTab('feed')), profileBtn())),
     txt('총 자산', { fontSize: 13, fontWeight: 600, color: C.t3, marginBottom: 8 }),
     txt(won(port.total, state.hide), { fontSize: 34, fontWeight: 800, color: C.t1, letterSpacing: -0.8, fontVariantNumeric: 'tabular-nums' }),
     row({ gap: 8, marginTop: 14, marginBottom: 18 },
@@ -422,8 +422,65 @@ function tabBar() {
     }));
 }
 
+/* ===================== Auth UI ===================== */
+// 구글 G 로고 (멀티컬러).
+function googleG(size) {
+  const p = (fill, d) => el('path', { fill, d });
+  return el('svg', { width: size, height: size, viewBox: '0 0 48 48' },
+    p('#EA4335', 'M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z'),
+    p('#4285F4', 'M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z'),
+    p('#FBBC05', 'M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z'),
+    p('#34A853', 'M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z'));
+}
+
+function googleBtn() {
+  return clk(() => window.Auth.signIn(),
+    { display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10, padding: '15px 0', borderRadius: 12, background: '#fff', border: '1px solid #E5E8EB', boxShadow: '0 1px 2px rgba(0,0,0,0.04)' },
+    googleG(20), txt('Google로 시작하기', { fontSize: 15, fontWeight: 700, color: C.t1 }));
+}
+
+function loginScreen() {
+  return col({ height: '100%', justifyContent: 'center', padding: '0 28px', background: C.card },
+    col({ alignItems: 'center' },
+      row({ justifyContent: 'center', width: 76, height: 76, borderRadius: 22, background: C.brand, marginBottom: 24 }, icon('bars', 40, '#fff', 2.4)),
+      txt('FolioFriends', { fontSize: 27, fontWeight: 800, color: C.t1, letterSpacing: -0.5 }),
+      el('div', { style: { height: 12 } }),
+      txt('친구들과 포트폴리오를 공유하고', { fontSize: 15, fontWeight: 500, color: C.t3 }),
+      txt('내 자산과 수익률을 한눈에', { fontSize: 15, fontWeight: 500, color: C.t3 })),
+    el('div', { style: { height: 44 } }),
+    googleBtn(),
+    el('div', { style: { height: 14 } }),
+    el('div', { style: { textAlign: 'center' } },
+      txt('로그인하면 서비스 이용약관에 동의하게 됩니다', { fontSize: 12, fontWeight: 500, color: C.t4 })));
+}
+
+function loadingScreen() {
+  return col({ height: '100%', justifyContent: 'center', alignItems: 'center', background: C.card },
+    txt('FolioFriends', { fontSize: 22, fontWeight: 800, color: C.t1, letterSpacing: -0.5 }),
+    el('div', { style: { height: 10 } }),
+    txt('불러오는 중…', { fontSize: 13, fontWeight: 500, color: C.t3 }));
+}
+
+// 로그인된 경우에만 헤더에 표시되는 프로필(탭하면 로그아웃).
+function profileBtn() {
+  const A = window.Auth;
+  if (!(A && A.enabled && A.user)) return null;
+  const u = A.user;
+  const inner = u.photo
+    ? el('img', { src: u.photo, referrerpolicy: 'no-referrer', width: 36, height: 36, style: { width: 36, height: 36, objectFit: 'cover' } })
+    : txt((u.name || u.email || 'U')[0].toUpperCase(), { fontSize: 15, fontWeight: 700, color: C.t2 });
+  return clk(() => { if (confirm((u.name || u.email) + '님, 로그아웃 하시겠어요?')) A.signOut(); },
+    { width: 36, height: 36, borderRadius: 18, overflow: 'hidden', background: C.bg, display: 'flex', alignItems: 'center', justifyContent: 'center', flex: 'none' },
+    inner);
+}
+
 /* ===================== Render ===================== */
 function render() {
+  const A = window.Auth;
+  const app = document.getElementById('app');
+  if (A && A.enabled && !A.ready) { app.replaceChildren(loadingScreen()); return; }
+  if (A && A.enabled && !A.user) { app.replaceChildren(loginScreen()); return; }
+
   const port = buildPortfolio();
   let header = null, body = null;
   if (state.view === 'home') body = homeB(port);
@@ -433,11 +490,12 @@ function render() {
   else if (state.view === 'friend') { const f = friends().find(x => x.id === state.param) || friends()[0]; header = backHeader(f.name); body = friendScreen(); }
   else if (state.view === 'ranking') body = rankingScreen();
 
-  const app = document.getElementById('app');
   app.replaceChildren();
   if (header) app.append(header);
   const scrn = el('div', { class: 'scrn' }, body);
   app.append(scrn, tabBar());
 }
 
+// 인증 상태가 바뀌면 다시 그린다.
+if (window.Auth) window.Auth.onChange = render;
 render();
