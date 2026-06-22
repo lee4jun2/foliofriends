@@ -1,0 +1,43 @@
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+
+html, body {
+  margin: 0;
+  background: #DEE2E6;
+  font-family: 'Pretendard Variable', Pretendard, -apple-system, BlinkMacSystemFont,
+    'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif;
+  color: #191F28;
+}
+
+/* 모바일 폭으로 가운데 정렬된 앱 프레임 */
+#app {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-width: 430px;
+  height: 100dvh;
+  margin: 0 auto;
+  background: #FFFFFF;
+  overflow: hidden;
+}
+
+@media (min-width: 460px) {
+  #app {
+    height: min(900px, 100dvh);
+    margin-top: max(0px, calc((100dvh - 900px) / 2));
+    border-radius: 28px;
+    box-shadow: 0 24px 60px -20px rgba(0, 0, 0, 0.35);
+  }
+}
+
+/* 스크롤 영역: 스크롤바 숨김 */
+.scrn {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+.scrn::-webkit-scrollbar { width: 0; height: 0; display: none; }
+
+span { font-variant-numeric: inherit; }
