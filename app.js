@@ -13,22 +13,35 @@ const KRW = 1380;
 let LIVE = {};
 let LIVE_UPDATED = null;
 
+// 데모 시드 (사용자가 스크린샷으로 가져오기 전 기본).
+const SEED_RAW = [
+  { id: 'aapl', name: 'Apple', ticker: 'AAPL', y: 'AAPL', mkt: 'US', color: '#4C6EF5', shares: 30, avg: 240, cur: 283, day: 1.1, ccy: '$' },
+  { id: 'nvda', name: 'NVIDIA', ticker: 'NVDA', y: 'NVDA', mkt: 'US', color: '#15AABF', shares: 45, avg: 150, cur: 192, day: 3.2, ccy: '$' },
+  { id: 'tsla', name: 'Tesla', ticker: 'TSLA', y: 'TSLA', mkt: 'US', color: '#FF8787', shares: 18, avg: 410, cur: 379, day: -0.8, ccy: '$' },
+  { id: 'sse', name: '삼성전자', ticker: '005930', y: '005930.KS', mkt: 'KR', color: '#20C997', shares: 35, avg: 290000, cur: 339500, day: 0.9, ccy: '₩' },
+  { id: 'skh', name: 'SK하이닉스', ticker: '000660', y: '000660.KS', mkt: 'KR', color: '#FAB005', shares: 4, avg: 2200000, cur: 2673000, day: 2.4, ccy: '₩' },
+  { id: 'nav', name: 'NAVER', ticker: '035420', y: '035420.KS', mkt: 'KR', color: '#9775FA', shares: 45, avg: 210000, cur: 196400, day: -1.2, ccy: '₩' },
+];
+
+const STORE_KEY = 'ff_holdings_v1';
+function loadUserHoldings() {
+  try { const v = JSON.parse(localStorage.getItem(STORE_KEY) || 'null'); return (v && v.length) ? v : null; } catch (e) { return null; }
+}
+function saveUserHoldings(h) { localStorage.setItem(STORE_KEY, JSON.stringify(h)); _port = null; }
+function clearUserHoldings() { localStorage.removeItem(STORE_KEY); _port = null; }
+
 let _port = null;
 function buildPortfolio() {
   if (_port) return _port;
-  const raw = [
-    { id: 'aapl', name: 'Apple', ticker: 'AAPL', y: 'AAPL', mkt: 'US', color: '#4C6EF5', shares: 30, avg: 240, cur: 283, day: 1.1, ccy: '$' },
-    { id: 'nvda', name: 'NVIDIA', ticker: 'NVDA', y: 'NVDA', mkt: 'US', color: '#15AABF', shares: 45, avg: 150, cur: 192, day: 3.2, ccy: '$' },
-    { id: 'tsla', name: 'Tesla', ticker: 'TSLA', y: 'TSLA', mkt: 'US', color: '#FF8787', shares: 18, avg: 410, cur: 379, day: -0.8, ccy: '$' },
-    { id: 'sse', name: '삼성전자', ticker: '005930', y: '005930.KS', mkt: 'KR', color: '#20C997', shares: 35, avg: 290000, cur: 339500, day: 0.9, ccy: '₩' },
-    { id: 'skh', name: 'SK하이닉스', ticker: '000660', y: '000660.KS', mkt: 'KR', color: '#FAB005', shares: 4, avg: 2200000, cur: 2673000, day: 2.4, ccy: '₩' },
-    { id: 'nav', name: 'NAVER', ticker: '035420', y: '035420.KS', mkt: 'KR', color: '#9775FA', shares: 45, avg: 210000, cur: 196400, day: -1.2, ccy: '₩' },
-  ];
+  const user = loadUserHoldings();
+  const raw = (user || SEED_RAW).map(h => ({ ...h }));
+  const fx = (LIVE['KRW=X'] && LIVE['KRW=X'].price) || 1380; // USD→KRW 환율(라이브)
   // 실시간 시세가 있으면 현재가/일간등락을 덮어쓴다.
   raw.forEach(s => {
     const q = s.y && LIVE[s.y];
     if (q && q.price) {
-      s.cur = q.price;
+      const k = s.usd ? fx : 1; // 원화로 보유 관리하는 미국 종목은 환율 적용
+      s.cur = q.price * k;
       s.live = true;
       if (q.prevClose) s.day = (q.price - q.prevClose) / q.prevClose * 100;
     }
@@ -281,6 +294,12 @@ function homeB(port) {
             txt(s.name, { fontSize: 14, fontWeight: 600, color: C.t1 })),
           txt(s.weight.toFixed(1) + '%', { fontSize: 14, fontWeight: 700, color: C.t2, fontVariantNumeric: 'tabular-nums' }))))),
     el('div', { style: { height: 8, background: C.bg, margin: '4px -20px 0' } }),
+    clk(() => push('import'), { display: 'flex', alignItems: 'center', gap: 10, margin: '16px 0 0', padding: '13px 14px', borderRadius: 12, background: C.tint },
+      icon('share', 18, C.brand, 1.8),
+      col({ flex: 1, gap: 1 },
+        txt('스크린샷으로 내 종목 가져오기', { fontSize: 13.5, fontWeight: 700, color: C.t1 }),
+        txt('증권 앱 화면을 올리면 자동으로 채워져요', { fontSize: 11.5, fontWeight: 500, color: C.t3 })),
+      icon('chev', 16, C.brand, 2)),
     col({ padding: '18px 0 0' },
       txt('보유 종목 ' + port.holdings.length, { fontSize: 15, fontWeight: 800, color: C.t1, marginBottom: 12 }),
       row({ gap: 7, flexWrap: 'wrap', marginBottom: 2 },
@@ -500,6 +519,186 @@ function profileBtn() {
     inner);
 }
 
+/* ===================== OCR 스크린샷 가져오기 ===================== */
+const HOLDING_COLORS = ['#4C6EF5', '#15AABF', '#FF8787', '#20C997', '#FAB005', '#9775FA', '#3182F6', '#F783AC', '#5C7CFA', '#22B8CF', '#94D82D', '#FFA94D', '#845EF7', '#FF6B6B'];
+let OCR_STAGE = 'pick';   // pick | processing | review
+let OCR_DRAFTS = [];
+let OCR_MSG = '';
+let OCR_FILES = [];
+
+function fileToImage(file) {
+  return new Promise((res, rej) => {
+    const img = new Image();
+    img.onload = () => res(img);
+    img.onerror = rej;
+    img.src = URL.createObjectURL(file);
+  });
+}
+
+// 전처리: 확대 + 그레이스케일 + 대비 강화 (Tesseract 정확도 향상)
+function preprocess(img) {
+  const scale = Math.min(2.5, Math.max(1, 1080 / img.width));
+  const w = Math.round(img.width * scale), h = Math.round(img.height * scale);
+  const c = document.createElement('canvas');
+  c.width = w; c.height = h;
+  const ctx = c.getContext('2d');
+  ctx.drawImage(img, 0, 0, w, h);
+  const id = ctx.getImageData(0, 0, w, h), d = id.data;
+  for (let i = 0; i < d.length; i += 4) {
+    let g = 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2];
+    g = (g - 128) * 1.25 + 128;
+    d[i] = d[i + 1] = d[i + 2] = g < 0 ? 0 : g > 255 ? 255 : g;
+  }
+  ctx.putImageData(id, 0, 0);
+  return c;
+}
+
+async function runOcrAndParse() {
+  OCR_STAGE = 'processing'; OCR_MSG = '준비 중…'; render();
+  const merged = new Map(); // name → draft (중복 제거)
+  try {
+    for (let fi = 0; fi < OCR_FILES.length; fi++) {
+      const img = await fileToImage(OCR_FILES[fi]);
+      const canvas = preprocess(img);
+      OCR_MSG = `이미지 ${fi + 1}/${OCR_FILES.length} 인식 중…`; render();
+      const { data } = await Tesseract.recognize(canvas, 'kor+eng', {
+        logger: (m) => {
+          if (m.status === 'recognizing text') {
+            OCR_MSG = `이미지 ${fi + 1}/${OCR_FILES.length} 인식 중 ${Math.round(m.progress * 100)}%`;
+            if (OCR_STAGE === 'processing') render();
+          }
+        },
+      });
+      const rows = window.parseTossEval(data.text || '');
+      for (const r of rows) {
+        const key = (r.name || '').replace(/\s/g, '');
+        if (!key) continue;
+        if (!merged.has(key)) merged.set(key, r);
+      }
+    }
+    OCR_DRAFTS = [...merged.values()];
+    if (!OCR_DRAFTS.length) {
+      OCR_STAGE = 'pick';
+      OCR_MSG = '종목을 찾지 못했어요. 토스증권 "평가" 탭(종목·평가액이 보이는 화면)을 캡처해 주세요.';
+      render();
+      return;
+    }
+    OCR_STAGE = 'review'; OCR_MSG = ''; render();
+  } catch (e) {
+    OCR_STAGE = 'pick';
+    OCR_MSG = '이미지 처리 중 오류가 났어요: ' + (e && e.message ? e.message : e);
+    render();
+  }
+}
+
+function applyDrafts() {
+  const ready = OCR_DRAFTS.filter((d) => d.name && d.shares > 0 && d.avg > 0);
+  if (!ready.length) { alert('종목명·수량·평단가가 채워진 항목이 없어요'); return; }
+  const holdings = ready.map((d, i) => {
+    const usd = !!(d.y && !/\.K[SQ]$/i.test(d.y));
+    return {
+      id: 'u' + i, name: d.name, ticker: d.y || d.name, y: d.y || null,
+      mkt: usd ? 'US' : 'KR', color: HOLDING_COLORS[i % HOLDING_COLORS.length],
+      shares: d.shares, avg: Math.round(d.avg), cur: Math.round(d.cur || d.avg),
+      day: 0, ccy: '₩', usd,
+    };
+  });
+  saveUserHoldings(holdings);
+  OCR_STAGE = 'pick'; OCR_DRAFTS = []; OCR_FILES = [];
+  goTab('assets');
+  loadPrices(); // 새 종목 실시간 시세 반영 시도
+}
+
+function importScreen() {
+  if (OCR_STAGE === 'processing') {
+    return col({ height: '100%', justifyContent: 'center', alignItems: 'center', gap: 14, padding: 24 },
+      el('div', { class: 'spin', style: { width: 36, height: 36, border: '3px solid ' + C.line, borderTopColor: C.brand, borderRadius: 18 } }),
+      txt(OCR_MSG || '인식 중…', { fontSize: 14, fontWeight: 600, color: C.t2 }),
+      txt('사진은 기기 안에서만 분석돼요', { fontSize: 12, color: C.t4 }));
+  }
+  if (OCR_STAGE === 'review') return reviewScreen();
+  return pickScreen();
+}
+
+function pickScreen() {
+  const input = el('input', { type: 'file', accept: 'image/*', multiple: 'true', style: { display: 'none' } });
+  input.addEventListener('change', (e) => {
+    OCR_FILES = [...e.target.files];
+    if (OCR_FILES.length) runOcrAndParse();
+  });
+  const hasUser = !!loadUserHoldings();
+  return col({ padding: '8px 24px 28px', height: '100%' },
+    col({ flex: 1, justifyContent: 'center', alignItems: 'center', gap: 0 },
+      row({ justifyContent: 'center', width: 64, height: 64, borderRadius: 20, background: C.tint, marginBottom: 18 }, icon('share', 30, C.brand, 1.8)),
+      txt('스크린샷으로 가져오기', { fontSize: 19, fontWeight: 800, color: C.t1 }),
+      el('div', { style: { height: 10 } }),
+      txt('토스증권 "평가" 탭(종목·수량·평가액이', { fontSize: 14, fontWeight: 500, color: C.t3 }),
+      txt('보이는 화면)을 캡처해 올려주세요', { fontSize: 14, fontWeight: 500, color: C.t3 }),
+      el('div', { style: { height: 6 } }),
+      txt('🔒 사진은 서버 전송 없이 기기 안에서만 분석돼요', { fontSize: 12, fontWeight: 500, color: C.t4 }),
+      OCR_MSG ? el('div', { style: { marginTop: 16, textAlign: 'center' } }, txt(OCR_MSG, { fontSize: 12.5, fontWeight: 600, color: C.up })) : null),
+    clk(() => input.click(), { display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 8, padding: '15px 0', borderRadius: 12, background: C.brand },
+      txt('스크린샷 선택', { fontSize: 15, fontWeight: 700, color: '#fff' })),
+    hasUser ? clk(() => { if (confirm('가져온 종목을 지우고 데모로 되돌릴까요?')) { clearUserHoldings(); goTab('assets'); loadPrices(); } },
+      { display: 'flex', justifyContent: 'center', padding: '12px 0', marginTop: 6 },
+      txt('데모 데이터로 초기화', { fontSize: 13, fontWeight: 600, color: C.t3 })) : null,
+    input);
+}
+
+function reviewScreen() {
+  return col({ height: '100%' },
+    el('div', { style: { padding: '12px 20px', background: '#FFF7E6' } },
+      txt('인식 결과예요. 잘못된 값은 직접 고쳐주세요. 평단가는 평가액·수익률로 자동 계산됩니다.', { fontSize: 12.5, fontWeight: 500, color: '#9A6700', lineHeight: 1.4 })),
+    el('div', { class: 'scrn', style: { flex: 1, padding: '12px 16px' } },
+      ...OCR_DRAFTS.map((d, i) => draftCard(d, i))),
+    el('div', { style: { padding: '10px 16px', borderTop: '1px solid ' + C.line, display: 'flex', gap: 10 } },
+      clk(() => { OCR_STAGE = 'pick'; render(); }, { flex: 1, display: 'flex', justifyContent: 'center', padding: '14px 0', borderRadius: 12, background: C.bg }, txt('다시 선택', { fontSize: 15, fontWeight: 700, color: C.t2 })),
+      clk(applyDrafts, { flex: 2, display: 'flex', justifyContent: 'center', padding: '14px 0', borderRadius: 12, background: C.brand }, txt(OCR_DRAFTS.filter((d) => d.name && d.shares > 0 && d.avg > 0).length + '개 적용하기', { fontSize: 15, fontWeight: 700, color: '#fff' }))));
+}
+
+function numInput(value, onChange, opts) {
+  const inp = el('input', {
+    type: 'text', inputmode: 'numeric', value: value == null ? '' : String(value),
+    style: { width: '100%', border: '1px solid ' + C.line, borderRadius: 8, padding: '8px 10px', fontSize: 14, fontWeight: 600, color: C.t1, fontFamily: 'inherit', textAlign: opts && opts.right ? 'right' : 'left', outline: 'none', background: '#fff' },
+  });
+  inp.addEventListener('input', () => onChange(inp.value));
+  return inp;
+}
+
+function draftCard(d, i) {
+  const recalc = () => {
+    if (d.eval != null && d.retPct != null && d.shares) {
+      const cost = Math.round(d.eval / (1 + d.retPct / 100));
+      d.avg = Math.round(cost / d.shares);
+      d.cur = Math.round(d.eval / d.shares);
+    }
+    render();
+  };
+  const nameInp = el('input', {
+    type: 'text', value: d.name || '',
+    style: { flex: 1, border: 'none', fontSize: 15, fontWeight: 700, color: C.t1, fontFamily: 'inherit', outline: 'none', background: 'transparent', minWidth: 0 },
+  });
+  nameInp.addEventListener('input', () => { d.name = nameInp.value; });
+  return col({ border: '1px solid ' + (d.name && d.shares > 0 && d.avg > 0 ? C.line : C.up), borderRadius: 14, padding: '12px 14px', marginBottom: 10, gap: 10 },
+    row({ gap: 8 },
+      el('div', { style: { width: 10, height: 10, borderRadius: 3, background: HOLDING_COLORS[i % HOLDING_COLORS.length], flex: 'none' } }),
+      nameInp,
+      d.y ? row({ background: C.tint, padding: '2px 7px', borderRadius: 6, flex: 'none' }, txt('시세연동', { fontSize: 10.5, fontWeight: 700, color: C.brand })) : null,
+      clk(() => { OCR_DRAFTS.splice(i, 1); render(); }, { padding: 4, flex: 'none' }, txt('✕', { fontSize: 14, color: C.t4 }))),
+    row({ gap: 8 },
+      col({ flex: 1, gap: 3 }, txt('수량(주)', { fontSize: 11, fontWeight: 600, color: C.t3 }),
+        numInput(d.shares, (v) => { d.shares = parseInt(v.replace(/[^\d]/g, ''), 10) || 0; recalc(); })),
+      col({ flex: 1.4, gap: 3 }, txt('평가액(원)', { fontSize: 11, fontWeight: 600, color: C.t3 }),
+        numInput(d.eval, (v) => { d.eval = parseInt(v.replace(/[^\d]/g, ''), 10) || 0; recalc(); }, { right: true })),
+      col({ flex: 1, gap: 3 }, txt('수익률(%)', { fontSize: 11, fontWeight: 600, color: C.t3 }),
+        numInput(d.retPct, (v) => { d.retPct = parseFloat(v.replace(/[^\d.\-]/g, '')) || 0; recalc(); }, { right: true }))),
+    row({ gap: 6, justifyContent: 'flex-end' },
+      txt('평단가 ' + (d.avg != null ? d.avg.toLocaleString('ko-KR') + '원' : '?'), { fontSize: 12, fontWeight: 600, color: C.t2 })));
+}
+
+// 디버그/테스트 관찰용 훅 (top-level let은 window에 안 올라가므로 노출)
+if (typeof window !== 'undefined') window.__ff = () => ({ stage: OCR_STAGE, drafts: OCR_DRAFTS, msg: OCR_MSG });
+
 /* ===================== Render ===================== */
 function render() {
   const A = window.Auth;
@@ -515,11 +714,16 @@ function render() {
   else if (state.view === 'feed') body = feedScreen();
   else if (state.view === 'friend') { const f = friends().find(x => x.id === state.param) || friends()[0]; header = backHeader(f.name); body = friendScreen(); }
   else if (state.view === 'ranking') body = rankingScreen();
+  else if (state.view === 'import') { header = backHeader('스크린샷 가져오기'); body = importScreen(); }
 
   app.replaceChildren();
   if (header) app.append(header);
-  const scrn = el('div', { class: 'scrn' }, body);
-  app.append(scrn, tabBar());
+  if (state.view === 'import') {
+    app.append(body); // importScreen이 자체 레이아웃/스크롤 관리
+  } else {
+    app.append(el('div', { class: 'scrn' }, body));
+  }
+  app.append(tabBar());
 }
 
 // 인증 상태가 바뀌면 다시 그린다.

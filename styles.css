@@ -41,3 +41,8 @@ html, body {
 .scrn::-webkit-scrollbar { width: 0; height: 0; display: none; }
 
 span { font-variant-numeric: inherit; }
+
+.spin { animation: spin 0.8s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+input { -webkit-appearance: none; appearance: none; }
