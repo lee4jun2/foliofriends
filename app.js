@@ -1008,8 +1008,11 @@ function adminScreen() {
             return row({ gap: 12, padding: '12px 0', borderBottom: '1px solid ' + C.line },
               u.photo ? el('img', { src: u.photo, referrerpolicy: 'no-referrer', width: 42, height: 42, style: { width: 42, height: 42, borderRadius: 21, objectFit: 'cover', flex: 'none' } }) : avatar((u.name || 'U').slice(0, 2), C.t4, 42),
               col({ flex: 1, minWidth: 0 }, txt(u.name || '사용자', { fontSize: 15, fontWeight: 700, color: C.t1 })),
-              clk(function () { window.DB.rejectUser(u.uid); ADMIN.pending = ADMIN.pending.filter(function (x) { return x.uid !== u.uid; }); render(); }, { padding: '8px 12px', borderRadius: 9, background: C.bg, flex: 'none' }, txt('거절', { fontSize: 13, fontWeight: 700, color: C.t3 })),
-              clk(function () { window.DB.approveUser(u.uid); ADMIN.pending = ADMIN.pending.filter(function (x) { return x.uid !== u.uid; }); render(); }, { padding: '8px 16px', borderRadius: 9, background: C.brand, flex: 'none' }, txt('승인', { fontSize: 13, fontWeight: 700, color: '#fff' })));
+              clk(function () { window.DB.rejectUser(u.uid).catch(function () {}); ADMIN.pending = ADMIN.pending.filter(function (x) { return x.uid !== u.uid; }); render(); }, { padding: '8px 12px', borderRadius: 9, background: C.bg, flex: 'none' }, txt('거절', { fontSize: 13, fontWeight: 700, color: C.t3 })),
+              clk(function () {
+                window.DB.approveUser(u.uid).then(function () { alert((u.name || '사용자') + ' 승인 완료'); }).catch(function (e) { alert('승인 실패: ' + (e && e.message ? e.message : e) + '\n보안 규칙을 확인해주세요.'); });
+                ADMIN.pending = ADMIN.pending.filter(function (x) { return x.uid !== u.uid; }); render();
+              }, { padding: '8px 16px', borderRadius: 9, background: C.brand, flex: 'none' }, txt('승인', { fontSize: 13, fontWeight: 700, color: '#fff' })));
           }))
         : txt('대기 중인 사용자가 없어요.', { fontSize: 13, color: C.t3, marginTop: 8 })));
 }

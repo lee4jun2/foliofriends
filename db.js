@@ -75,17 +75,16 @@
     }).catch(function () {});
   }
 
+  // 승인/거절은 단일 경로로 분리 — /rejected 규칙이 없어도 /approved 쓰기는 성공하게.
   function approveUser(uid) {
-    const updates = {};
-    updates['approved/' + uid] = true;
-    updates['rejected/' + uid] = null; // 거절 해제
-    return db.ref().update(updates);
+    return db.ref('approved/' + uid).set(true).then(function () {
+      db.ref('rejected/' + uid).remove().catch(function () {}); // 거절 해제(있으면), best-effort
+    });
   }
   function rejectUser(uid) {
-    const updates = {};
-    updates['rejected/' + uid] = true;
-    updates['approved/' + uid] = null;
-    return db.ref().update(updates);
+    return db.ref('rejected/' + uid).set(true).catch(function () {}).then(function () {
+      db.ref('approved/' + uid).remove().catch(function () {});
+    });
   }
 
   // 승인 대기자 목록(소유자 전용) 실시간 구독 — 승인/거절된 사람 제외.
