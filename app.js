@@ -97,9 +97,11 @@ function friends() {
 /* ===================== State ===================== */
 let state = { tab: 'assets', view: 'home', param: null, hist: [], hide: false, sortKey: 'value', sortDir: 'desc' };
 function upd(patch) { state = { ...state, ...patch }; render(); }
-function goTab(tab) { upd({ tab, view: tab === 'assets' ? 'home' : tab, param: null, hist: [] }); }
-function push(view, param) { upd({ view, param, hist: [...state.hist, { view: state.view, param: state.param }] }); }
+function goTab(tab) { upd({ tab, view: tab === 'assets' ? 'home' : tab, param: null, hist: [] }); if (typeof history !== 'undefined') history.pushState({ nav: 1 }, ''); }
+function push(view, param) { upd({ view, param, hist: [...state.hist, { view: state.view, param: state.param }] }); if (typeof history !== 'undefined') history.pushState({ nav: 1 }, ''); }
 function back() { const h = [...state.hist]; const last = h.pop() || { view: 'home', param: null }; upd({ view: last.view, param: last.param, hist: h }); }
+// 브라우저 뒤로가기 → 앱 내 뒤로가기
+if (typeof window !== 'undefined') window.addEventListener('popstate', function () { back(); });
 function toggleHide() { upd({ hide: !state.hide }); }
 function setSort(key) {
   if ((state.sortKey || 'value') === key) upd({ sortDir: (state.sortDir || 'desc') === 'desc' ? 'asc' : 'desc' });
@@ -524,7 +526,7 @@ function rankingScreen() {
 /* ===================== Chrome ===================== */
 function backHeader(title, right) {
   return row({ justifyContent: 'space-between', padding: '6px 16px 10px', flex: 'none', background: C.card, borderBottom: '1px solid ' + C.line },
-    clk(back, { width: 36, height: 36, display: 'flex', alignItems: 'center', justifyContent: 'center', marginLeft: -6 }, icon('back', 24, C.t1, 2.2)),
+    clk(() => history.back(), { width: 36, height: 36, display: 'flex', alignItems: 'center', justifyContent: 'center', marginLeft: -6 }, icon('back', 24, C.t1, 2.2)),
     txt(title, { fontSize: 17, fontWeight: 700, color: C.t1 }),
     right || el('div', { style: { width: 36 } }));
 }
