@@ -755,17 +755,20 @@ function importScreen() {
   return pickScreen();
 }
 
-function uploadSlot(num, title, sub, file, onPick) {
+function uploadSlot(num, title, sub, exampleSrc, file, onPick) {
   const input = el('input', { type: 'file', accept: 'image/*', style: { display: 'none' } });
   input.addEventListener('change', (e) => { if (e.target.files[0]) { onPick(e.target.files[0]); render(); } });
   const done = !!file;
   return clk(() => input.click(),
-    { display: 'flex', alignItems: 'center', gap: 12, padding: '14px 16px', borderRadius: 14, border: '1.5px solid ' + (done ? C.brand : C.line), background: done ? C.tint : C.card },
-    row({ justifyContent: 'center', width: 30, height: 30, borderRadius: 15, background: done ? C.brand : C.bg, flex: 'none' },
-      done ? txt('✓', { fontSize: 15, fontWeight: 800, color: '#fff' }) : txt(num, { fontSize: 14, fontWeight: 800, color: C.t3 })),
+    { display: 'flex', alignItems: 'center', gap: 12, padding: '12px 14px', borderRadius: 14, border: '1.5px solid ' + (done ? C.brand : C.line), background: done ? C.tint : C.card },
+    el('div', { style: { position: 'relative', flex: 'none' } },
+      el('img', { src: exampleSrc, width: 48, height: 62, style: { width: 48, height: 62, borderRadius: 8, objectFit: 'cover', border: '1px solid ' + C.line, display: 'block' } }),
+      el('div', { style: { position: 'absolute', top: 3, left: 3, width: 18, height: 18, borderRadius: 9, background: done ? C.brand : 'rgba(0,0,0,0.55)', display: 'flex', alignItems: 'center', justifyContent: 'center' } },
+        txt(done ? '✓' : num, { fontSize: 11, fontWeight: 800, color: '#fff' }))),
     col({ flex: 1, gap: 2, minWidth: 0 },
       txt(title, { fontSize: 14.5, fontWeight: 700, color: C.t1 }),
-      txt(done ? '선택됨 · 다시 누르면 변경' : sub, { fontSize: 12, fontWeight: 500, color: done ? C.brand : C.t3 })),
+      txt(done ? '선택됨 · 다시 누르면 변경' : sub, { fontSize: 12, fontWeight: 500, color: done ? C.brand : C.t3 }),
+      txt(done ? '' : '예시처럼 보이는 화면', { fontSize: 11, fontWeight: 500, color: C.t4 })),
     icon('chev', 18, C.t4, 2), input);
 }
 
@@ -778,8 +781,8 @@ function pickScreen() {
         txt('스크린샷으로 가져오기', { fontSize: 19, fontWeight: 800, color: C.t1 }),
         el('div', { style: { height: 8 } }),
         txt('토스증권 두 화면을 각각 캡처해 올려주세요', { fontSize: 13, fontWeight: 500, color: C.t3, textAlign: 'center' })),
-      uploadSlot('1', '① 주식 수 화면', '"평가" 탭 — 종목·수량', OCR_FILE_SHARES, (f) => { OCR_FILE_SHARES = f; }),
-      uploadSlot('2', '② 평단가 화면', '"시세" 탭 — 평균단가', OCR_FILE_PRICE, (f) => { OCR_FILE_PRICE = f; }),
+      uploadSlot('1', '① 주식 수 화면', '"평가" 탭 — 종목·수량', './assets/ex-shares.jpg', OCR_FILE_SHARES, (f) => { OCR_FILE_SHARES = f; }),
+      uploadSlot('2', '② 평단가 화면', '"시세" 탭 — 평균단가', './assets/ex-price.jpg', OCR_FILE_PRICE, (f) => { OCR_FILE_PRICE = f; }),
       txt('🔒 사진은 서버 전송 없이 기기 안에서만 분석돼요', { fontSize: 11.5, fontWeight: 500, color: C.t4, textAlign: 'center', marginTop: 4 }),
       OCR_MSG ? el('div', { style: { textAlign: 'center' } }, txt(OCR_MSG, { fontSize: 12.5, fontWeight: 600, color: C.up })) : null),
     clk(() => { if (canAnalyze) runOcrAndParse(); }, { display: 'flex', justifyContent: 'center', alignItems: 'center', padding: '15px 0', borderRadius: 12, background: canAnalyze ? C.brand : C.line },
