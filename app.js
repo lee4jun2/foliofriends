@@ -780,10 +780,12 @@ function pickScreen() {
       col({ alignItems: 'center', gap: 0, marginBottom: 6 },
         txt('스크린샷으로 가져오기', { fontSize: 19, fontWeight: 800, color: C.t1 }),
         el('div', { style: { height: 8 } }),
-        txt('토스증권 두 화면을 각각 캡처해 올려주세요', { fontSize: 13, fontWeight: 500, color: C.t3, textAlign: 'center' })),
-      uploadSlot('1', '① 주식 수 화면', '"평가" 탭 — 종목·수량', './assets/ex-shares.jpg', OCR_FILE_SHARES, (f) => { OCR_FILE_SHARES = f; }),
-      uploadSlot('2', '② 평단가 화면', '"시세" 탭 — 평균단가', './assets/ex-price.jpg', OCR_FILE_PRICE, (f) => { OCR_FILE_PRICE = f; }),
-      txt('🔒 사진은 서버 전송 없이 기기 안에서만 분석돼요', { fontSize: 11.5, fontWeight: 500, color: C.t4, textAlign: 'center', marginTop: 4 }),
+        txt('토스증권 앱의 두 탭을 각각', { fontSize: 13, fontWeight: 500, color: C.t3, textAlign: 'center' }),
+        txt('전체 화면 캡처해 올려주세요', { fontSize: 13, fontWeight: 500, color: C.t3, textAlign: 'center' })),
+      uploadSlot('1', '① 주식 수 화면', '토스 "평가" 탭 전체 스크린샷', './assets/ex-shares.jpg', OCR_FILE_SHARES, (f) => { OCR_FILE_SHARES = f; }),
+      uploadSlot('2', '② 평단가 화면', '토스 "시세" 탭 전체 스크린샷', './assets/ex-price.jpg', OCR_FILE_PRICE, (f) => { OCR_FILE_PRICE = f; }),
+      txt('💡 종목이 다 보이게 화면 전체를 캡처하세요', { fontSize: 11.5, fontWeight: 600, color: C.t3, textAlign: 'center', marginTop: 2 }),
+      txt('🔒 사진은 서버 전송 없이 기기 안에서만 분석돼요', { fontSize: 11.5, fontWeight: 500, color: C.t4, textAlign: 'center' }),
       OCR_MSG ? el('div', { style: { textAlign: 'center' } }, txt(OCR_MSG, { fontSize: 12.5, fontWeight: 600, color: C.up })) : null),
     clk(() => { if (canAnalyze) runOcrAndParse(); }, { display: 'flex', justifyContent: 'center', alignItems: 'center', padding: '15px 0', borderRadius: 12, background: canAnalyze ? C.brand : C.line },
       txt('분석하기', { fontSize: 15, fontWeight: 700, color: canAnalyze ? '#fff' : C.t4 })),
@@ -812,17 +814,36 @@ function numInput(value, onChange, opts) {
   return inp;
 }
 
+// 입력값을 야후 심볼로 정규화 (6자리→.KS 기본, 그 외 그대로)
+function normSymbol(v) {
+  v = (v || '').trim().toUpperCase().replace(/\s/g, '');
+  if (!v) return null;
+  if (/^\d{6}$/.test(v)) return v + '.KS';
+  return v;
+}
+
 function draftCard(d, i) {
   const nameInp = el('input', {
     type: 'text', value: d.name || '',
     style: { flex: 1, border: 'none', fontSize: 15, fontWeight: 700, color: C.t1, fontFamily: 'inherit', outline: 'none', background: 'transparent', minWidth: 0 },
   });
   nameInp.addEventListener('input', () => { d.name = nameInp.value; });
+
+  // 종목코드 수동 입력 (시세 미연동 종목용)
+  const codeInp = el('input', {
+    type: 'text', value: d.y || '', placeholder: '예: 005930, AAPL',
+    style: { flex: 1, border: '1px solid ' + C.line, borderRadius: 8, padding: '7px 10px', fontSize: 13, fontWeight: 600, color: C.t1, fontFamily: 'inherit', outline: 'none', background: '#fff', minWidth: 0 },
+  });
+  codeInp.addEventListener('input', () => { const s = normSymbol(codeInp.value); d.y = s; d.usd = !!(s && !/\.K[SQ]$/i.test(s)); });
+  codeInp.addEventListener('change', () => render());
+
   return col({ border: '1px solid ' + (d.name && d.shares > 0 && d.avg > 0 ? C.line : C.up), borderRadius: 14, padding: '12px 14px', marginBottom: 10, gap: 10 },
     row({ gap: 8 },
       el('div', { style: { width: 10, height: 10, borderRadius: 3, background: HOLDING_COLORS[i % HOLDING_COLORS.length], flex: 'none' } }),
       nameInp,
-      d.y ? row({ background: C.tint, padding: '2px 7px', borderRadius: 6, flex: 'none' }, txt('시세연동', { fontSize: 10.5, fontWeight: 700, color: C.brand })) : null,
+      d.y
+        ? row({ background: C.tint, padding: '2px 7px', borderRadius: 6, flex: 'none' }, txt('시세연동', { fontSize: 10.5, fontWeight: 700, color: C.brand }))
+        : row({ background: '#FFF0E6', padding: '2px 7px', borderRadius: 6, flex: 'none' }, txt('시세 미연동', { fontSize: 10.5, fontWeight: 700, color: '#E8730C' })),
       clk(() => { OCR_DRAFTS.splice(i, 1); render(); }, { padding: 4, flex: 'none' }, txt('✕', { fontSize: 14, color: C.t4 }))),
     row({ gap: 8 },
       col({ flex: 1, gap: 3 }, txt('수량(주)', { fontSize: 11, fontWeight: 600, color: C.t3 }),
@@ -831,7 +852,12 @@ function draftCard(d, i) {
         numInput(d.avg, (v) => {
           const cleaned = v.replace(/[^\d.]/g, '');
           d.avg = d.usd ? (parseFloat(cleaned) || 0) : (parseInt(cleaned.replace(/\./g, ''), 10) || 0);
-        }, { right: true }))));
+        }, { right: true }))),
+    !d.y
+      ? col({ gap: 4 },
+          txt('종목코드 직접 연동 (시세 받아오기)', { fontSize: 11, fontWeight: 600, color: '#E8730C' }),
+          codeInp)
+      : null);
 }
 
 /* ===================== 커뮤니티(팔로우) ===================== */
