@@ -850,7 +850,12 @@ function processInviteFromUrl() {
 
 /* ----- 온보딩 (신규 로그인·보유내역 없음) ----- */
 function onboardingScreen() {
-  return col({ flex: 1, minHeight: 0, justifyContent: 'center', alignItems: 'center', padding: '0 28px', background: C.card },
+  const adminBanner = (window.DB && window.DB.isAdmin && ADMIN.pending.length)
+    ? clk(() => push('admin'), { position: 'absolute', top: 14, left: 20, right: 20, display: 'flex', alignItems: 'center', gap: 8, padding: '12px 14px', borderRadius: 12, background: '#FFF1F0' },
+        icon('lock', 16, C.up, 1.8), txt('가입 승인 대기 ' + ADMIN.pending.length + '명', { fontSize: 13.5, fontWeight: 700, color: C.t1 }), el('div', { style: { flex: 1 } }), icon('chev', 16, C.up, 2))
+    : null;
+  return col({ flex: 1, minHeight: 0, justifyContent: 'center', alignItems: 'center', padding: '0 28px', background: C.card, position: 'relative' },
+    adminBanner,
     row({ justifyContent: 'center', width: 72, height: 72, borderRadius: 22, background: C.brand, marginBottom: 20 }, icon('bars', 38, '#fff', 2.2)),
     txt('내 자산 한눈에 보기', { fontSize: 21, fontWeight: 800, color: C.t1 }),
     el('div', { style: { height: 10 } }),
