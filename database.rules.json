@@ -17,28 +17,26 @@
 
     "shared": {
       "$uid": {
-        ".read": "auth != null && (auth.uid === $uid || root.child('following/' + auth.uid + '/' + $uid).exists())",
+        ".read": "auth != null && (auth.uid === $uid || root.child('friends/' + $uid + '/' + auth.uid).exists())",
         ".write": "auth != null && auth.uid === $uid"
       }
     },
 
-    "following": {
+    "friends": {
       "$uid": {
         ".read": "auth != null && auth.uid === $uid",
-        "$target": {
-          ".write": "auth != null && auth.uid === $uid",
+        "$friend": {
+          ".write": "auth != null && (auth.uid === $uid || auth.uid === $friend)",
           ".validate": "newData.isBoolean()"
         }
       }
     },
 
-    "followers": {
-      "$uid": {
-        ".read": "auth != null && auth.uid === $uid",
-        "$follower": {
-          ".write": "auth != null && auth.uid === $follower",
-          ".validate": "newData.isBoolean()"
-        }
+    "invites": {
+      "$code": {
+        ".read": "auth != null",
+        ".write": "auth != null && ((!data.exists() && newData.child('from').val() === auth.uid) || (data.exists() && data.child('from').val() === auth.uid))",
+        ".validate": "newData.hasChildren(['from', 'exp'])"
       }
     }
   }

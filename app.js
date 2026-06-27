@@ -365,13 +365,13 @@ function feedScreen() {
       col({ gap: 4 },
         txt('친구 피드', { fontSize: 22, fontWeight: 800, color: C.t1 }),
         txt(community ? '팔로우한 친구들의 포트폴리오' : '친구들이 공유한 포트폴리오를 둘러보세요', { fontSize: 13, fontWeight: 500, color: C.t3 })),
-      community ? clk(() => { loadPeople(); push('people'); }, { display: 'flex', alignItems: 'center', gap: 4, background: C.tint, padding: '8px 12px', borderRadius: 10 },
-        icon('users', 16, C.brand, 1.8), txt('친구 찾기', { fontSize: 12.5, fontWeight: 700, color: C.brand })) : null),
+      community ? clk(() => push('invite'), { display: 'flex', alignItems: 'center', gap: 4, background: C.tint, padding: '8px 12px', borderRadius: 10 },
+        icon('users', 16, C.brand, 1.8), txt('친구 초대', { fontSize: 12.5, fontWeight: 700, color: C.brand })) : null),
     (community && !fr.length)
       ? col({ alignItems: 'center', gap: 10, padding: '50px 20px' },
-          txt('아직 팔로우한 친구가 없어요', { fontSize: 15, fontWeight: 700, color: C.t2 }),
-          txt('"친구 찾기"로 친구를 팔로우하면\n포트폴리오를 비중·수익률로 볼 수 있어요', { fontSize: 13, fontWeight: 500, color: C.t3, whiteSpace: 'pre-line', textAlign: 'center' }),
-          clk(() => { loadPeople(); push('people'); }, { marginTop: 8, padding: '12px 22px', borderRadius: 11, background: C.brand }, txt('친구 찾기', { fontSize: 14, fontWeight: 700, color: '#fff' })))
+          txt('아직 친구가 없어요', { fontSize: 15, fontWeight: 700, color: C.t2 }),
+          txt('초대 링크를 보내 친구를 맺으면\n서로의 포트폴리오를 비중·수익률로 볼 수 있어요', { fontSize: 13, fontWeight: 500, color: C.t3, whiteSpace: 'pre-line', textAlign: 'center' }),
+          clk(() => push('invite'), { marginTop: 8, padding: '12px 22px', borderRadius: 11, background: C.brand }, txt('친구 초대하기', { fontSize: 14, fontWeight: 700, color: '#fff' })))
       : null,
     ...fr.map(f => {
       const top = f.hold.slice(0, 3);
@@ -723,7 +723,7 @@ function hashIdx(s) { let h = 0; for (let i = 0; i < s.length; i++) h = (h * 31 
 function startCommunity() {
   if (!useCommunity()) return;
   if (_unwatchFollowing) _unwatchFollowing();
-  _unwatchFollowing = window.DB.watchFollowing(function (uids) {
+  _unwatchFollowing = window.DB.watchFriends(function (uids) {
     COMMUNITY.following = uids;
     Promise.all(uids.map(function (uid) {
       return Promise.all([window.DB.getUser(uid), window.DB.getShared(uid)]).then(function (r) {
@@ -757,50 +757,104 @@ function myHoldingNames() {
   catch (e) { return new Set(); }
 }
 
-/* ----- 사람 찾기 / 팔로우 화면 ----- */
-let PEOPLE = { q: '', results: [], loading: false, followingSet: new Set() };
+/* ----- 친구 초대 / 수락 ----- */
+let INVITE = { code: null, url: null, exp: 0, loading: false };
+let PENDING_INVITE = null;            // 수락 대기 중인 초대 {code, name, from}
+let INVITE_CODE_FROM_URL = (function () { const m = location.search.match(/[?&]invite=([A-Za-z0-9]+)/); return m ? m[1] : null; })();
 
-function loadPeople() {
+function clearInviteParam() { if (history.replaceState) history.replaceState(null, '', location.pathname); }
+
+function makeInvite() {
   if (!useCommunity()) return;
-  PEOPLE.loading = true; render();
-  window.DB.searchUsers(PEOPLE.q).then(function (list) {
-    PEOPLE.results = list;
-    PEOPLE.followingSet = new Set(COMMUNITY.following);
-    PEOPLE.loading = false; render();
-  }).catch(function () { PEOPLE.loading = false; render(); });
+  INVITE.loading = true; render();
+  const myName = (window.Auth.user && window.Auth.user.name) || '친구';
+  window.DB.createInvite(myName).then(function (r) {
+    INVITE.code = r.code; INVITE.exp = r.exp;
+    INVITE.url = location.origin + location.pathname + '?invite=' + r.code;
+    INVITE.loading = false; render();
+  }).catch(function (e) { INVITE.loading = false; alert(e.message); render(); });
 }
 
-function peopleScreen() {
-  const search = el('input', {
-    type: 'text', value: PEOPLE.q, placeholder: '이름으로 친구 찾기',
-    style: { flex: 1, border: 'none', outline: 'none', fontSize: 15, fontFamily: 'inherit', background: 'transparent', color: C.t1 },
-  });
-  search.addEventListener('input', function () { PEOPLE.q = search.value; });
-  search.addEventListener('keydown', function (e) { if (e.key === 'Enter') loadPeople(); });
+function shareInvite() {
+  if (!INVITE.url) return;
+  const text = 'FolioFriends에서 친구 맺어요! (30분 내 수락)\n' + INVITE.url;
+  if (navigator.share) navigator.share({ title: 'FolioFriends 친구 초대', text: text, url: INVITE.url }).catch(function () {});
+  else if (navigator.clipboard) navigator.clipboard.writeText(INVITE.url).then(function () { alert('초대 링크를 복사했어요'); });
+  else alert(INVITE.url);
+}
 
-  const rows = PEOPLE.results.map(function (u) {
-    const following = PEOPLE.followingSet.has(u.uid);
-    return row({ gap: 12, padding: '12px 0', borderBottom: '1px solid ' + C.line },
-      u.photo
-        ? el('img', { src: u.photo, referrerpolicy: 'no-referrer', width: 42, height: 42, style: { width: 42, height: 42, borderRadius: 21, objectFit: 'cover', flex: 'none' } })
-        : avatar((u.name || 'U').slice(0, 2), COMM_PALETTE[hashIdx(u.uid) % COMM_PALETTE.length], 42),
-      col({ flex: 1, gap: 2, minWidth: 0 },
-        txt(u.name || '사용자', { fontSize: 15, fontWeight: 700, color: C.t1 })),
-      clk(function () {
-        const act = following ? window.DB.unfollow(u.uid) : window.DB.follow(u.uid);
-        act.then(function () { if (following) PEOPLE.followingSet.delete(u.uid); else PEOPLE.followingSet.add(u.uid); render(); });
-      }, { padding: '8px 16px', borderRadius: 9, background: following ? C.bg : C.brand, flex: 'none' },
-        txt(following ? '팔로잉' : '팔로우', { fontSize: 13, fontWeight: 700, color: following ? C.t2 : '#fff' })));
-  });
-
+function inviteScreen() {
+  const friendsList = communityFriends();
   return col({ flex: 1, minHeight: 0 },
-    row({ gap: 8, margin: '12px 20px', padding: '10px 14px', borderRadius: 12, background: C.bg },
-      icon('users', 18, C.t3, 1.8), search,
-      clk(loadPeople, { padding: '4px 8px' }, txt('검색', { fontSize: 13, fontWeight: 700, color: C.brand }))),
-    el('div', { class: 'scrn', style: { flex: 1, padding: '0 20px 20px' } },
-      PEOPLE.loading ? txt('검색 중…', { fontSize: 13, color: C.t3 })
-        : (rows.length ? rows : txt(PEOPLE.q ? '검색 결과가 없어요' : '이름을 입력해 친구를 찾아보세요', { fontSize: 13, color: C.t3 }))));
+    el('div', { class: 'scrn', style: { flex: 1, padding: '8px 20px 24px' } },
+      col({ background: C.tint, borderRadius: 16, padding: 18, gap: 12, marginTop: 8 },
+        txt('친구 초대하기', { fontSize: 16, fontWeight: 800, color: C.t1 }),
+        txt('초대 링크를 보내고, 상대가 로그인 상태로 수락하면 서로 친구가 돼요. 링크는 30분간 유효해요.', { fontSize: 12.5, fontWeight: 500, color: C.t2, lineHeight: 1.45 }),
+        INVITE.url
+          ? col({ gap: 8 },
+              el('div', { style: { background: '#fff', borderRadius: 10, padding: '12px 14px', wordBreak: 'break-all', fontSize: 12.5, color: C.t2, fontWeight: 600 } }, INVITE.url),
+              row({ gap: 8 },
+                clk(shareInvite, { flex: 1, display: 'flex', justifyContent: 'center', padding: '12px 0', borderRadius: 10, background: C.brand }, txt('공유하기', { fontSize: 14, fontWeight: 700, color: '#fff' })),
+                clk(makeInvite, { display: 'flex', justifyContent: 'center', padding: '12px 16px', borderRadius: 10, background: '#fff' }, txt('새 링크', { fontSize: 14, fontWeight: 700, color: C.brand }))))
+          : clk(makeInvite, { display: 'flex', justifyContent: 'center', padding: '14px 0', borderRadius: 11, background: C.brand }, txt(INVITE.loading ? '만드는 중…' : '초대 링크 만들기', { fontSize: 15, fontWeight: 700, color: '#fff' }))),
+      txt('내 친구 ' + friendsList.length, { fontSize: 15, fontWeight: 800, color: C.t1, marginTop: 24, marginBottom: 4 }),
+      friendsList.length
+        ? col({}, ...friendsList.map(function (f) {
+            return row({ gap: 12, padding: '12px 0', borderBottom: '1px solid ' + C.line },
+              f.photo ? el('img', { src: f.photo, referrerpolicy: 'no-referrer', width: 42, height: 42, style: { width: 42, height: 42, borderRadius: 21, objectFit: 'cover', flex: 'none' } }) : avatar(f.short, f.color, 42),
+              col({ flex: 1, minWidth: 0 }, txt(f.name, { fontSize: 15, fontWeight: 700, color: C.t1 }), txt('수익률 ' + pct(f.ret), { fontSize: 12.5, fontWeight: 600, color: cc(f.ret) })),
+              clk(function () { if (confirm(f.name + '님과 친구를 끊을까요? (상대도 해제돼요)')) window.DB.unfriend(f.id).then(function () { render(); }); }, { padding: '7px 13px', borderRadius: 9, background: C.bg, flex: 'none' }, txt('끊기', { fontSize: 13, fontWeight: 700, color: C.t2 })));
+          }))
+        : txt('아직 친구가 없어요. 위에서 초대 링크를 보내보세요.', { fontSize: 13, fontWeight: 500, color: C.t3, marginTop: 8 })));
 }
+
+function acceptScreen() {
+  const inv = PENDING_INVITE || {};
+  return col({ flex: 1, minHeight: 0, justifyContent: 'center', alignItems: 'center', padding: '0 28px' },
+    row({ justifyContent: 'center', width: 64, height: 64, borderRadius: 20, background: C.tint, marginBottom: 18 }, icon('users', 30, C.brand, 1.8)),
+    txt((inv.name || '친구') + '님이', { fontSize: 18, fontWeight: 700, color: C.t1 }),
+    txt('친구 신청을 보냈어요', { fontSize: 18, fontWeight: 800, color: C.t1 }),
+    el('div', { style: { height: 8 } }),
+    txt('수락하면 서로의 포트폴리오를 비중·수익률로 볼 수 있어요', { fontSize: 13, fontWeight: 500, color: C.t3, textAlign: 'center' }),
+    el('div', { style: { height: 28 } }),
+    clk(function () {
+      window.DB.acceptInvite(inv.code).then(function (r) {
+        PENDING_INVITE = null; clearInviteParam(); startCommunity();
+        alert((r.name || '친구') + '님과 친구가 됐어요!'); goTab('feed');
+      }).catch(function (e) { alert(e.message); PENDING_INVITE = null; clearInviteParam(); goTab('assets'); });
+    }, { width: '100%', display: 'flex', justifyContent: 'center', padding: '15px 0', borderRadius: 12, background: C.brand }, txt('수락하기', { fontSize: 15, fontWeight: 700, color: '#fff' })),
+    el('div', { style: { height: 10 } }),
+    clk(function () { PENDING_INVITE = null; clearInviteParam(); render(); }, { padding: '10px' }, txt('나중에', { fontSize: 14, fontWeight: 600, color: C.t3 })));
+}
+
+// 로그인 + DB 준비 후 URL의 초대코드 처리
+function processInviteFromUrl() {
+  if (!INVITE_CODE_FROM_URL || !useCommunity()) return;
+  const code = INVITE_CODE_FROM_URL; INVITE_CODE_FROM_URL = null;
+  window.DB.getInvite(code).then(function (inv) {
+    if (inv && inv.from !== window.DB.me && (!inv.exp || inv.exp > Date.now())) {
+      PENDING_INVITE = { code: code, name: inv.name, from: inv.from }; render();
+    } else { clearInviteParam(); }
+  }).catch(function () { clearInviteParam(); });
+}
+
+/* ----- 온보딩 (신규 로그인·보유내역 없음) ----- */
+function onboardingScreen() {
+  return col({ flex: 1, minHeight: 0, justifyContent: 'center', alignItems: 'center', padding: '0 28px', background: C.card },
+    row({ justifyContent: 'center', width: 72, height: 72, borderRadius: 22, background: C.brand, marginBottom: 20 }, icon('bars', 38, '#fff', 2.2)),
+    txt('내 자산 한눈에 보기', { fontSize: 21, fontWeight: 800, color: C.t1 }),
+    el('div', { style: { height: 10 } }),
+    txt('증권 앱 "평가" 화면을 캡처해 올리면', { fontSize: 14, fontWeight: 500, color: C.t3, textAlign: 'center' }),
+    txt('종목·수량·평단가를 자동으로 채워드려요', { fontSize: 14, fontWeight: 500, color: C.t3, textAlign: 'center' }),
+    el('div', { style: { height: 8 } }),
+    txt('🔒 사진은 기기 안에서만 분석돼요', { fontSize: 12, fontWeight: 500, color: C.t4 }),
+    el('div', { style: { height: 32 } }),
+    clk(function () { OCR_STAGE = 'pick'; push('import'); }, { width: '100%', display: 'flex', justifyContent: 'center', padding: '15px 0', borderRadius: 12, background: C.brand }, txt('스크린샷으로 시작하기', { fontSize: 15, fontWeight: 700, color: '#fff' })),
+    el('div', { style: { height: 10 } }),
+    clk(function () { ONBOARD_SKIP = true; render(); }, { padding: '10px' }, txt('나중에 할게요', { fontSize: 14, fontWeight: 600, color: C.t3 })));
+}
+let ONBOARD_SKIP = false;
+function needsOnboarding() { return useCommunity() && !loadUserHoldings() && !ONBOARD_SKIP; }
 
 // 디버그/테스트 관찰용 훅 (top-level let은 window에 안 올라가므로 노출)
 if (typeof window !== 'undefined') window.__ff = () => ({ stage: OCR_STAGE, drafts: OCR_DRAFTS, msg: OCR_MSG, community: COMMUNITY, useCommunity: useCommunity() });
@@ -811,21 +865,22 @@ function render() {
   const app = document.getElementById('app');
   if (A && A.enabled && !A.ready) { app.replaceChildren(loadingScreen()); return; }
   if (A && A.enabled && !A.user) { app.replaceChildren(loginScreen()); return; }
+  if (PENDING_INVITE) { app.replaceChildren(acceptScreen()); return; }
 
   const port = buildPortfolio();
   let header = null, body = null;
-  if (state.view === 'home') body = homeB(port);
+  if (state.view === 'home') body = needsOnboarding() ? onboardingScreen() : homeB(port);
   else if (state.view === 'holdings') { header = backHeader('보유 종목', eyeBtn()); body = holdingsScreen(port); }
   else if (state.view === 'stock') { const s = port.holdings.find(x => x.id === state.param) || port.holdings[0]; header = backHeader(s.name, iconBtn('star')); body = stockScreen(port); }
   else if (state.view === 'feed') body = feedScreen();
   else if (state.view === 'friend') { const l = feedFriends(); const f = l.find(x => x.id === state.param) || l[0]; header = backHeader(f ? f.name : '포트폴리오'); body = friendScreen(); }
   else if (state.view === 'ranking') body = rankingScreen();
   else if (state.view === 'import') { header = backHeader('스크린샷 가져오기'); body = importScreen(); }
-  else if (state.view === 'people') { header = backHeader('친구 찾기'); body = peopleScreen(); }
+  else if (state.view === 'invite') { header = backHeader('친구'); body = inviteScreen(); }
 
   app.replaceChildren();
   if (header) app.append(header);
-  if (state.view === 'import' || state.view === 'people') {
+  if (state.view === 'import' || state.view === 'invite') {
     app.append(body); // 자체 레이아웃/스크롤 관리
   } else {
     app.append(el('div', { class: 'scrn' }, body));
@@ -859,6 +914,7 @@ if (window.DB) {
       return;
     }
     startCommunity();
+    processInviteFromUrl();
     window.DB.loadHoldings().then(function (items) {
       if (items && items.length) { saveUserHoldings(items); render(); }
       publishMine();

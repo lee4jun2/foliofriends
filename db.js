@@ -3,26 +3,25 @@
 /*
  * Firebase Realtime Database 데이터 레이어 (window.DB).
  *
- * 저장 모델 — 두 노드로 분리해 보안 규칙으로 강제:
- *   /holdings/{uid}  = 전체 보유내역(종목·수량·평단·평가액)   ← 본인만 read/write
- *                       (다른 기기에서도 본인 자산을 그대로 보기 위함)
- *   /shared/{uid}    = { ret, dayPct, count, holdings:[{name, weight, ret, color}] }
- *                       ← 본인 + 팔로워만 read. 금액(수량·평단·평가액)은 없음.
- *   /users/{uid}     = { name, photo, updatedAt }
- *   /following/{uid}/{target} = true,  /followers/{target}/{uid} = true
+ * 저장 모델
+ *   /holdings/{uid} = 전체 보유내역(금액 포함) — 본인만 read/write (다기기 동기화)
+ *   /shared/{uid}   = { ret, dayPct, holdings:[{name,weight,ret,color}] } — 본인+친구만 read (금액 없음)
+ *   /users/{uid}    = { name, photo }
+ *   /friends/{uid}/{other} = true  — 대칭(둘 다 기록). 한쪽이 지우면 둘 다 해제.
+ *   /invites/{code} = { from, name, exp } — 짧은 유효기간 초대코드(링크 공유용)
  *
- * 즉, 민감정보(금액)는 커뮤니티로 공유될 때만 가려진다 — 본인은 항상 본다.
+ * 친구 맺기: 검색이 아니라 초대링크. 상대가 로그인 상태로 수락하면 양쪽 friends에 기록.
  */
 (function () {
   const cfg = window.FIREBASE_CONFIG || {};
   const hasUrl = !!cfg.databaseURL && !String(cfg.databaseURL).includes('YOUR_');
 
+  const INVITE_TTL = 30 * 60 * 1000; // 30분
+
   const DB = {
-    enabled: false,
-    me: null,
-    onAuth: null, // app.js가 로그인/로그아웃 시 호출받을 콜백
+    enabled: false, me: null, onAuth: null,
     syncProfile, saveHoldings, loadHoldings, saveShared, getShared,
-    follow, unfollow, isFollowing, watchFollowing, getUser, searchUsers,
+    createInvite, getInvite, acceptInvite, watchFriends, unfriend, getUser,
   };
   window.DB = DB;
 
@@ -41,28 +40,19 @@
   function syncProfile(p) {
     if (!DB.me) return Promise.resolve();
     return db.ref('users/' + DB.me).update({
-      name: p.name || '익명',
-      photo: p.photo || null,
+      name: p.name || '익명', photo: p.photo || null,
       updatedAt: firebase.database.ServerValue.TIMESTAMP,
     });
   }
 
-  // 전체 보유내역 저장 (본인 전용)
   function saveHoldings(holdings) {
     if (!DB.me) return Promise.resolve();
     return db.ref('holdings/' + DB.me).set({ items: holdings || [], updatedAt: firebase.database.ServerValue.TIMESTAMP });
   }
-
-  // 다른 기기에서 본인 보유내역 불러오기
   function loadHoldings() {
     if (!DB.me) return Promise.resolve(null);
-    return db.ref('holdings/' + DB.me).get().then(function (s) {
-      const v = s.val();
-      return v && v.items ? v.items : null;
-    });
+    return db.ref('holdings/' + DB.me).get().then(function (s) { const v = s.val(); return v && v.items ? v.items : null; });
   }
-
-  // 공유본 저장 (비중·수익률만, 금액 제외)
   function saveShared(port) {
     if (!DB.me || !port) return Promise.resolve();
     const holdings = (port.holdings || []).map(function (s) {
@@ -73,55 +63,65 @@
       holdings: holdings, updatedAt: firebase.database.ServerValue.TIMESTAMP,
     });
   }
-
-  // 팔로우한 사람의 공유 포트폴리오 (금액 없음)
   function getShared(uid) {
     return db.ref('shared/' + uid).get().then(function (s) { return s.exists() ? s.val() : null; });
   }
 
-  function follow(target) {
-    if (!DB.me || !target || target === DB.me) return Promise.resolve();
+  // ----- 초대 / 친구 -----
+  function randomCode() {
+    let s = '';
+    const a = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
+    const buf = (window.crypto && window.crypto.getRandomValues) ? window.crypto.getRandomValues(new Uint32Array(8)) : null;
+    for (let i = 0; i < 8; i++) { const r = buf ? buf[i] : Math.floor(Math.random() * 1e9); s += a[r % a.length]; }
+    return s;
+  }
+
+  // 내 초대코드 생성 (짧은 유효기간). { code, exp } 반환
+  function createInvite(myName) {
+    if (!DB.me) return Promise.reject(new Error('로그인이 필요해요'));
+    const code = randomCode();
+    const exp = Date.now() + INVITE_TTL;
+    return db.ref('invites/' + code).set({ from: DB.me, name: myName || '친구', exp: exp })
+      .then(function () { return { code: code, exp: exp }; });
+  }
+
+  function getInvite(code) {
+    return db.ref('invites/' + code).get().then(function (s) { return s.exists() ? s.val() : null; });
+  }
+
+  // 초대 수락 → 양쪽 friends에 기록. 친구 uid 반환
+  function acceptInvite(code) {
+    if (!DB.me) return Promise.reject(new Error('로그인이 필요해요'));
+    return getInvite(code).then(function (inv) {
+      if (!inv) throw new Error('유효하지 않은 초대예요');
+      if (inv.exp && inv.exp < Date.now()) throw new Error('만료된 초대예요');
+      if (inv.from === DB.me) throw new Error('본인 초대는 수락할 수 없어요');
+      const other = inv.from;
+      const updates = {};
+      updates['friends/' + DB.me + '/' + other] = true;
+      updates['friends/' + other + '/' + DB.me] = true;
+      return db.ref().update(updates).then(function () { return { uid: other, name: inv.name }; });
+    });
+  }
+
+  // 친구 끊기 (대칭 — 양쪽 해제)
+  function unfriend(other) {
+    if (!DB.me || !other) return Promise.resolve();
     const updates = {};
-    updates['following/' + DB.me + '/' + target] = true;
-    updates['followers/' + target + '/' + DB.me] = true;
+    updates['friends/' + DB.me + '/' + other] = null;
+    updates['friends/' + other + '/' + DB.me] = null;
     return db.ref().update(updates);
   }
 
-  function unfollow(target) {
-    if (!DB.me || !target) return Promise.resolve();
-    const updates = {};
-    updates['following/' + DB.me + '/' + target] = null;
-    updates['followers/' + target + '/' + DB.me] = null;
-    return db.ref().update(updates);
-  }
-
-  function isFollowing(target) {
-    if (!DB.me || !target) return Promise.resolve(false);
-    return db.ref('following/' + DB.me + '/' + target).get().then(function (s) { return s.exists(); });
-  }
-
-  function watchFollowing(cb) {
+  function watchFriends(cb) {
     if (!DB.me) { cb([]); return function () {}; }
-    const ref = db.ref('following/' + DB.me);
+    const ref = db.ref('friends/' + DB.me);
     const handler = ref.on('value', function (snap) { cb(Object.keys(snap.val() || {})); });
     return function () { ref.off('value', handler); };
   }
 
   function getUser(uid) {
     return db.ref('users/' + uid).get().then(function (s) { return s.exists() ? Object.assign({ uid: uid }, s.val()) : null; });
-  }
-
-  function searchUsers(query) {
-    const q = (query || '').trim().toLowerCase();
-    return db.ref('users').limitToFirst(200).get().then(function (s) {
-      const out = [];
-      s.forEach(function (child) {
-        const v = child.val() || {};
-        if (child.key === DB.me) return;
-        if (!q || (v.name || '').toLowerCase().includes(q)) out.push(Object.assign({ uid: child.key }, v));
-      });
-      return out;
-    });
   }
 
   function round1(n) { return n == null ? 0 : Math.round(n * 10) / 10; }
