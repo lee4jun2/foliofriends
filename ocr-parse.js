@@ -24,7 +24,7 @@ function _sim(a, b) {
   a = _norm(a); b = _norm(b);
   if (!a || !b) return 0;
   if (a === b) return 1;
-  if (a.length >= 2 && b.length >= 2 && (a.includes(b) || b.includes(a))) return 0.92;
+  if (Math.min(a.length, b.length) >= 3 && (a.includes(b) || b.includes(a))) return 0.92;
   const A = _bigrams(a), B = _bigrams(b);
   if (!A.length || !B.length) return 0;
   const cnt = {};
@@ -96,5 +96,100 @@ function parseTossEval(text) {
   return out;
 }
 
-if (typeof module !== 'undefined' && module.exports) module.exports = { parseTossEval, normalizeName };
-if (typeof window !== 'undefined') { window.parseTossEval = parseTossEval; }
+/* ===== 두 화면 전용 파서 (정확도 ↑) ===== */
+
+// 헤더("시세 평가") 이후 ~ "현금" 이전의 줄들만
+function _bodyLines(text) {
+  const lines = text.split('\n').map((s) => s.trim()).filter(Boolean);
+  const out = [];
+  let started = false;
+  for (const line of lines) {
+    if (/^\s*현금/.test(line)) break;
+    if (!started) { if (/시세\s*평가|평가\s*[액맥]|평가맥/.test(line)) started = true; continue; }
+    out.push(line);
+  }
+  return out;
+}
+
+// 줄에서 가격·퍼센트만 떼고 종목명 후보로 사전 매칭.
+// 종목명에 든 작은 숫자(S&P500의 500, TOP10의 10, KODEX 200 등)는 보존.
+function _lineName(line) {
+  const textPart = line
+    .replace(/\$\s*[\d.,]+/g, ' ')       // $가격
+    .replace(/[\d,]{4,}/g, ' ')          // 큰 숫자(가격, 4자리+ 또는 콤마)
+    .replace(/[\d,]+\s*원/g, ' ')        // X원
+    .replace(/[+\-]?[\d.]+\s*%/g, ' ')   // 퍼센트
+    .replace(/[^A-Za-z가-힣0-9&]/g, ' ') // 숫자는 보존
+    .trim();
+  return normalizeName(textPart);
+}
+
+const _PCT = /[\(\[]?\s*[+\-]?[\d.,]+\s*%/;
+
+// ① 주식수 화면(평가 탭): [{name, y, shares}] (이름이 윗줄로 분리돼도 복구)
+function parseSharesView(text) {
+  const lines = _bodyLines(text);
+  const out = [];
+  let recent = [];
+  for (const line of lines) {
+    // 상세줄: (±X%) 형태의 퍼센트를 포함 (MMF처럼 +2원 작은 손익도 누락 안 되게 완화)
+    const isDetail = /[\(\[]\s*[+\-]?[\d.,]+\s*%/.test(line);
+    if (isDetail) {
+      const sharesM = line.match(/^[^\d]*([\d,]+)/);
+      const shares = sharesM ? parseInt(sharesM[1].replace(/,/g, ''), 10) : null;
+      const pctM = line.match(/[\(\[]\s*([+\-]?[\d.,]+)\s*%/);
+      const retPct = pctM ? parseFloat(pctM[1].replace(/,/g, '')) : null;
+      // 직전 1~2줄을 이름 후보로, 사전 매칭 점수가 높은 쪽 선택
+      let best = { name: '', y: null, score: 0, matched: false };
+      for (const cand of recent.slice(-2)) {
+        const n = _lineName(cand);
+        if (n.score >= best.score) best = n;
+      }
+      // 평가액(이름줄의 큰 숫자) → 평단가 역산 (단독 업로드 fallback용)
+      let evalV = null;
+      for (const cand of recent) {
+        const em = cand.match(/([\d,]{5,})/);
+        if (em) { const v = parseInt(em[1].replace(/,/g, ''), 10); if (v > (evalV || 0)) evalV = v; }
+      }
+      let avg = null;
+      if (evalV && retPct != null && shares) avg = Math.round((evalV / (1 + retPct / 100)) / shares);
+      if (shares && shares > 0 && (best.name || recent.length)) {
+        out.push({ name: best.name || _lineName(recent[recent.length - 1] || '').name, y: best.y, shares, avg, matched: best.matched });
+      }
+      recent = [];
+    } else {
+      recent.push(line);
+    }
+  }
+  return out;
+}
+
+// ② 평단가 화면(시세 탭): [{name, y, avg, usd}]
+// 시세 뷰 구조: [이름줄: 종목명+현재가(%없음)] → [평단가줄: 평단가+일간등락%(%있음)]
+function parsePriceView(text) {
+  const lines = _bodyLines(text);
+  const out = [];
+  let pending = null;
+  for (const line of lines) {
+    const hasPct = /[+\-]?[\d.,]+\s*%/.test(line);
+    if (hasPct && pending) {
+      // 평단가줄: $금액 또는 큰 숫자
+      const usdM = line.match(/\$\s*([\d.,]+)/);
+      let avg = null, usd = false;
+      if (usdM) { avg = parseFloat(usdM[1].replace(/,/g, '')); usd = true; }
+      else {
+        const m = line.match(/([\d][\d,]{2,})/);
+        if (m) avg = parseInt(m[1].replace(/,/g, ''), 10);
+      }
+      if (avg != null && avg > 0) { out.push({ name: pending.name, y: pending.y, avg, usd }); pending = null; }
+    } else if (!hasPct) {
+      // 이름줄 후보
+      const nm = _lineName(line);
+      if (nm.matched && /\d/.test(line)) pending = nm;
+    }
+  }
+  return out;
+}
+
+if (typeof module !== 'undefined' && module.exports) module.exports = { parseTossEval, parseSharesView, parsePriceView, normalizeName };
+if (typeof window !== 'undefined') { window.parseTossEval = parseTossEval; window.parseSharesView = parseSharesView; window.parsePriceView = parsePriceView; }

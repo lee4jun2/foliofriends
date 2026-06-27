@@ -434,9 +434,9 @@ function friendScreen() {
         txt(f.name, { fontSize: 19, fontWeight: 800, color: C.t1 }),
         row({ gap: 6, background: C.bg, padding: '3px 9px', borderRadius: 8, alignSelf: 'flex-start' },
           icon('lock', 13, C.t3, 1.8), txt('비중만 공개', { fontSize: 11.5, fontWeight: 700, color: C.t3 }))),
-      col({ alignItems: 'flex-end', gap: 1 },
-        txt('수익률', { fontSize: 12, fontWeight: 600, color: C.t3 }),
-        txt(pct(f.ret), { fontSize: 22, fontWeight: 800, color: cc(f.ret) }))),
+      col({ alignItems: 'flex-end', gap: 2 },
+        txt('누적 ' + pct(f.ret), { fontSize: 20, fontWeight: 800, color: cc(f.ret) }),
+        txt('오늘 ' + pct(f.day || 0), { fontSize: 12.5, fontWeight: 600, color: cc(f.day || 0) }))),
     col({ background: C.bg, borderRadius: 14, padding: '13px 16px', margin: '2px 0 6px' },
       row({ justifyContent: 'space-between', alignItems: 'center' },
         col({ gap: 2 }, txt('나', { fontSize: 12, fontWeight: 600, color: C.t3 }), txt(pct(myRet), { fontSize: 18, fontWeight: 800, color: cc(myRet) })),
@@ -568,8 +568,10 @@ const HOLDING_COLORS = ['#4C6EF5', '#15AABF', '#FF8787', '#20C997', '#FAB005', '
 let OCR_STAGE = 'pick';   // pick | processing | review
 let OCR_DRAFTS = [];
 let OCR_MSG = '';
-let OCR_FILES = [];
+let OCR_FILE_SHARES = null; // ① 주식 수 화면(평가 탭)
+let OCR_FILE_PRICE = null;  // ② 평단가 화면(시세 탭)
 let OCR_PROGRESS = 0;     // 0~1 (인식 진행률)
+let OCR_RAW = '';         // 디버그: 마지막 원시 OCR 텍스트
 
 function fileToImage(file) {
   return new Promise((res, rej) => {
@@ -609,43 +611,38 @@ function preprocess(img) {
   return c;
 }
 
+async function ocrText(file, label, idx, total) {
+  const img = await fileToImage(file);
+  const canvas = preprocess(img);
+  OCR_MSG = label + ' 화면 인식 중…'; render();
+  const { data } = await Tesseract.recognize(canvas, 'kor+eng', {
+    logger: (m) => {
+      if (m.status === 'recognizing text') {
+        OCR_PROGRESS = (idx + m.progress) / total;
+        OCR_MSG = label + ' 화면 인식 중 ' + Math.round(m.progress * 100) + '%';
+        if (OCR_STAGE === 'processing') render();
+      }
+    },
+  });
+  OCR_RAW = data.text || '';
+  return data.text || '';
+}
+
 async function runOcrAndParse() {
   OCR_STAGE = 'processing'; OCR_MSG = '준비 중…'; OCR_PROGRESS = 0; render();
-  const merged = new Map(); // name → draft (중복 제거)
   try {
-    for (let fi = 0; fi < OCR_FILES.length; fi++) {
-      const img = await fileToImage(OCR_FILES[fi]);
-      const canvas = preprocess(img);
-      OCR_MSG = `이미지 ${fi + 1}/${OCR_FILES.length} 인식 중…`; render();
-      const { data } = await Tesseract.recognize(canvas, 'kor+eng', {
-        logger: (m) => {
-          if (m.status === 'recognizing text') {
-            OCR_PROGRESS = (fi + m.progress) / OCR_FILES.length;
-            OCR_MSG = `이미지 ${fi + 1}/${OCR_FILES.length} 인식 중 ${Math.round(m.progress * 100)}%`;
-            if (OCR_STAGE === 'processing') render();
-          }
-        },
-      });
-      const rows = window.parseTossEval(data.text || '');
-      for (const r of rows) {
-        const key = (r.name || '').replace(/\s/g, '');
-        if (!key) continue;
-        if (!merged.has(key)) merged.set(key, r);
-      }
+    const jobs = [];
+    if (OCR_FILE_SHARES) jobs.push('shares');
+    if (OCR_FILE_PRICE) jobs.push('price');
+    let sharesList = [], priceList = [];
+    for (let i = 0; i < jobs.length; i++) {
+      if (jobs[i] === 'shares') sharesList = window.parseSharesView(await ocrText(OCR_FILE_SHARES, '주식 수', i, jobs.length));
+      else priceList = window.parsePriceView(await ocrText(OCR_FILE_PRICE, '평단가', i, jobs.length));
     }
-    OCR_DRAFTS = [...merged.values()];
-    // 미국 종목은 달러 평단가로 변환 (토스 평가뷰는 원화 → 현재 환율로 환산)
-    const fx = (LIVE['KRW=X'] && LIVE['KRW=X'].price) || 1380;
-    OCR_DRAFTS.forEach((d) => {
-      d.usd = !!(d.y && !/\.K[SQ]$/i.test(d.y));
-      if (d.usd && d.avg) {
-        d.avg = Math.round((d.avg / fx) * 100) / 100;
-        if (d.cur) d.cur = Math.round((d.cur / fx) * 100) / 100;
-      }
-    });
+    OCR_DRAFTS = mergeViews(sharesList, priceList);
     if (!OCR_DRAFTS.length) {
       OCR_STAGE = 'pick';
-      OCR_MSG = '종목을 찾지 못했어요. 토스증권 "평가" 탭(종목·평가액이 보이는 화면)을 캡처해 주세요.';
+      OCR_MSG = '종목을 찾지 못했어요. 토스 "평가"(주식 수)·"시세"(평단가) 화면을 캡처해 주세요.';
       render();
       return;
     }
@@ -657,22 +654,53 @@ async function runOcrAndParse() {
   }
 }
 
+// 주식수 화면(수량) + 평단가 화면(평단가)을 같은 순서로 병합
+function mergeViews(sharesList, priceList) {
+  const fx = (LIVE['KRW=X'] && LIVE['KRW=X'].price) || 1380;
+  const isUsd = (y) => !!(y && !/\.K[SQ]$/i.test(y));
+  if (sharesList.length && priceList.length) {
+    const n = Math.max(sharesList.length, priceList.length);
+    const out = [];
+    for (let i = 0; i < n; i++) {
+      const s = sharesList[i], p = priceList[i];
+      const y = (p && p.y) || (s && s.y) || null;
+      out.push({
+        name: (p && p.name) || (s && s.name) || '',
+        y, usd: p ? !!p.usd : isUsd(y),
+        shares: s ? s.shares : null,
+        avg: p ? p.avg : null,
+      });
+    }
+    return out.filter((d) => d.name);
+  }
+  // 주식 수 화면만: 평단가는 역산(원화) → 미국은 환율로 달러 환산
+  if (sharesList.length) {
+    return sharesList.map((s) => {
+      const usd = isUsd(s.y);
+      let avg = s.avg;
+      if (usd && avg) avg = Math.round((avg / fx) * 100) / 100;
+      return { name: s.name, y: s.y, usd, shares: s.shares, avg: avg || null };
+    });
+  }
+  // 평단가 화면만: 수량은 사용자 입력
+  if (priceList.length) {
+    return priceList.map((p) => ({ name: p.name, y: p.y, usd: !!p.usd, shares: null, avg: p.avg }));
+  }
+  return [];
+}
+
 function applyDrafts() {
   const ready = OCR_DRAFTS.filter((d) => d.name && d.shares > 0 && d.avg > 0);
   if (!ready.length) { alert('종목명·수량·평단가가 채워진 항목이 없어요'); return; }
-  const holdings = ready.map((d, i) => {
-    const usd = !!(d.y && !/\.K[SQ]$/i.test(d.y));
-    return {
-      id: 'u' + i, name: d.name, ticker: d.y || d.name, y: d.y || null,
-      mkt: usd ? 'US' : 'KR', color: HOLDING_COLORS[i % HOLDING_COLORS.length],
-      shares: d.shares, avg: usd ? d.avg : Math.round(d.avg), cur: usd ? d.avg : Math.round(d.avg),
-      day: 0, ccy: usd ? '$' : '₩', usd,
-    };
-  });
+  const holdings = ready.map((d, i) => ({
+    id: 'u' + i, name: d.name, ticker: d.y || d.name, y: d.y || null,
+    mkt: d.usd ? 'US' : 'KR', color: HOLDING_COLORS[i % HOLDING_COLORS.length],
+    shares: d.shares, avg: d.avg, cur: d.avg, day: 0, ccy: d.usd ? '$' : '₩', usd: !!d.usd,
+  }));
   saveUserHoldings(holdings);
   // 보유 종목 심볼을 등록 → 다음 시세 갱신부터 실시간 반영
   if (window.DB && window.DB.addSymbols) window.DB.addSymbols(holdings.map((h) => h.y).filter(Boolean));
-  OCR_STAGE = 'pick'; OCR_DRAFTS = []; OCR_FILES = [];
+  OCR_STAGE = 'pick'; OCR_DRAFTS = []; OCR_FILE_SHARES = null; OCR_FILE_PRICE = null;
   goTab('assets');
   loadPrices(); // 기존에 받아둔 시세 즉시 반영
 }
@@ -696,29 +724,38 @@ function importScreen() {
   return pickScreen();
 }
 
+function uploadSlot(num, title, sub, file, onPick) {
+  const input = el('input', { type: 'file', accept: 'image/*', style: { display: 'none' } });
+  input.addEventListener('change', (e) => { if (e.target.files[0]) { onPick(e.target.files[0]); render(); } });
+  const done = !!file;
+  return clk(() => input.click(),
+    { display: 'flex', alignItems: 'center', gap: 12, padding: '14px 16px', borderRadius: 14, border: '1.5px solid ' + (done ? C.brand : C.line), background: done ? C.tint : C.card },
+    row({ justifyContent: 'center', width: 30, height: 30, borderRadius: 15, background: done ? C.brand : C.bg, flex: 'none' },
+      done ? txt('✓', { fontSize: 15, fontWeight: 800, color: '#fff' }) : txt(num, { fontSize: 14, fontWeight: 800, color: C.t3 })),
+    col({ flex: 1, gap: 2, minWidth: 0 },
+      txt(title, { fontSize: 14.5, fontWeight: 700, color: C.t1 }),
+      txt(done ? '선택됨 · 다시 누르면 변경' : sub, { fontSize: 12, fontWeight: 500, color: done ? C.brand : C.t3 })),
+    icon('chev', 18, C.t4, 2), input);
+}
+
 function pickScreen() {
-  const input = el('input', { type: 'file', accept: 'image/*', multiple: 'true', style: { display: 'none' } });
-  input.addEventListener('change', (e) => {
-    OCR_FILES = [...e.target.files];
-    if (OCR_FILES.length) runOcrAndParse();
-  });
   const hasUser = !!loadUserHoldings();
-  return col({ padding: '8px 24px max(28px, env(safe-area-inset-bottom))', flex: 1, minHeight: 0 },
-    col({ flex: 1, justifyContent: 'center', alignItems: 'center', gap: 0 },
-      row({ justifyContent: 'center', width: 64, height: 64, borderRadius: 20, background: C.tint, marginBottom: 18 }, icon('share', 30, C.brand, 1.8)),
-      txt('스크린샷으로 가져오기', { fontSize: 19, fontWeight: 800, color: C.t1 }),
-      el('div', { style: { height: 10 } }),
-      txt('토스증권 "평가" 탭(종목·수량·평가액이', { fontSize: 14, fontWeight: 500, color: C.t3 }),
-      txt('보이는 화면)을 캡처해 올려주세요', { fontSize: 14, fontWeight: 500, color: C.t3 }),
-      el('div', { style: { height: 6 } }),
-      txt('🔒 사진은 서버 전송 없이 기기 안에서만 분석돼요', { fontSize: 12, fontWeight: 500, color: C.t4 }),
-      OCR_MSG ? el('div', { style: { marginTop: 16, textAlign: 'center' } }, txt(OCR_MSG, { fontSize: 12.5, fontWeight: 600, color: C.up })) : null),
-    clk(() => input.click(), { display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 8, padding: '15px 0', borderRadius: 12, background: C.brand },
-      txt('스크린샷 선택', { fontSize: 15, fontWeight: 700, color: '#fff' })),
+  const canAnalyze = !!(OCR_FILE_SHARES || OCR_FILE_PRICE);
+  return col({ padding: '8px 20px max(20px, env(safe-area-inset-bottom))', flex: 1, minHeight: 0 },
+    col({ flex: 1, justifyContent: 'center', gap: 12 },
+      col({ alignItems: 'center', gap: 0, marginBottom: 6 },
+        txt('스크린샷으로 가져오기', { fontSize: 19, fontWeight: 800, color: C.t1 }),
+        el('div', { style: { height: 8 } }),
+        txt('토스증권 두 화면을 각각 캡처해 올려주세요', { fontSize: 13, fontWeight: 500, color: C.t3, textAlign: 'center' })),
+      uploadSlot('1', '① 주식 수 화면', '"평가" 탭 — 종목·수량', OCR_FILE_SHARES, (f) => { OCR_FILE_SHARES = f; }),
+      uploadSlot('2', '② 평단가 화면', '"시세" 탭 — 평균단가', OCR_FILE_PRICE, (f) => { OCR_FILE_PRICE = f; }),
+      txt('🔒 사진은 서버 전송 없이 기기 안에서만 분석돼요', { fontSize: 11.5, fontWeight: 500, color: C.t4, textAlign: 'center', marginTop: 4 }),
+      OCR_MSG ? el('div', { style: { textAlign: 'center' } }, txt(OCR_MSG, { fontSize: 12.5, fontWeight: 600, color: C.up })) : null),
+    clk(() => { if (canAnalyze) runOcrAndParse(); }, { display: 'flex', justifyContent: 'center', alignItems: 'center', padding: '15px 0', borderRadius: 12, background: canAnalyze ? C.brand : C.line },
+      txt('분석하기', { fontSize: 15, fontWeight: 700, color: canAnalyze ? '#fff' : C.t4 })),
     hasUser ? clk(() => { if (confirm('가져온 종목을 지우고 데모로 되돌릴까요?')) { clearUserHoldings(); goTab('assets'); loadPrices(); } },
-      { display: 'flex', justifyContent: 'center', padding: '12px 0', marginTop: 6 },
-      txt('데모 데이터로 초기화', { fontSize: 13, fontWeight: 600, color: C.t3 })) : null,
-    input);
+      { display: 'flex', justifyContent: 'center', padding: '12px 0', marginTop: 4 },
+      txt('데모 데이터로 초기화', { fontSize: 13, fontWeight: 600, color: C.t3 })) : null);
 }
 
 function reviewScreen() {
@@ -792,7 +829,7 @@ function communityFriends() {
     const nm = u.name || '사용자';
     return {
       id: uid, name: nm, short: nm.replace(/\s/g, '').slice(0, 2), photo: u.photo || null,
-      color: COMM_PALETTE[hashIdx(uid) % COMM_PALETTE.length], ret: sh.ret || 0,
+      color: COMM_PALETTE[hashIdx(uid) % COMM_PALETTE.length], ret: sh.ret || 0, day: sh.dayPct || 0,
       time: '팔로잉', likes: 0, comments: 0,
       hold: (sh.holdings || []).map(function (h) { return { n: h.name, w: h.weight, r: h.ret }; }),
     };
@@ -828,8 +865,8 @@ function makeInvite() {
 
 function shareInvite() {
   if (!INVITE.url) return;
-  const text = 'FolioFriends에서 친구 맺어요! (30분 내 수락)\n' + INVITE.url;
-  if (navigator.share) navigator.share({ title: 'FolioFriends 친구 초대', text: text, url: INVITE.url }).catch(function () {});
+  // url을 text에 또 넣으면 일부 앱이 링크를 중복 첨부함 → url 필드만 사용
+  if (navigator.share) navigator.share({ title: 'FolioFriends 친구 초대', text: 'FolioFriends에서 친구 맺어요! (30분 내 수락)', url: INVITE.url }).catch(function () {});
   else if (navigator.clipboard) navigator.clipboard.writeText(INVITE.url).then(function () { alert('초대 링크를 복사했어요'); });
   else alert(INVITE.url);
 }
@@ -946,7 +983,7 @@ function adminScreen() {
 }
 
 // 디버그/테스트 관찰용 훅 (top-level let은 window에 안 올라가므로 노출)
-if (typeof window !== 'undefined') window.__ff = () => ({ stage: OCR_STAGE, drafts: OCR_DRAFTS, msg: OCR_MSG, community: COMMUNITY, useCommunity: useCommunity() });
+if (typeof window !== 'undefined') window.__ff = () => ({ stage: OCR_STAGE, drafts: OCR_DRAFTS, msg: OCR_MSG, raw: OCR_RAW, community: COMMUNITY, useCommunity: useCommunity() });
 
 /* ===================== Render ===================== */
 function render() {
