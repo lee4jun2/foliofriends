@@ -50,7 +50,9 @@ let _port = null;
 function buildPortfolio() {
   if (_port) return _port;
   const user = loadUserHoldings();
-  const raw = (user || SEED_RAW).map(h => ({ ...h }));
+  // 로그인 상태에선 데모 시드를 쓰지 않음 (연동 전엔 빈 포트폴리오 → 온보딩이 가림)
+  const base = user || (loggedInUid() ? [] : SEED_RAW);
+  const raw = base.map(h => ({ ...h }));
   const fx = (LIVE['KRW=X'] && LIVE['KRW=X'].price) || 1380; // USD→KRW 환율(라이브)
   // 실시간 시세가 있으면 현재가/일간등락을 덮어쓴다.
   raw.forEach(s => {
@@ -74,7 +76,7 @@ function buildPortfolio() {
   });
   raw.forEach(s => s.weight = s.val / total * 100);
   raw.sort((a, b) => b.weight - a.weight);
-  _port = { holdings: raw, total, cost, pnl: total - cost, ret: (total - cost) / cost * 100, dayPnl, dayPct: dayPnl / total * 100 };
+  _port = { holdings: raw, total, cost, pnl: total - cost, ret: cost ? (total - cost) / cost * 100 : 0, dayPnl, dayPct: total ? dayPnl / total * 100 : 0 };
   return _port;
 }
 
@@ -914,9 +916,10 @@ function render() {
   if (A && A.enabled && !A.ready) { app.replaceChildren(loadingScreen()); return; }
   if (A && A.enabled && !A.user) { app.replaceChildren(loginScreen()); return; }
   // 가입 승인 게이트
+  // 로그인했으면(Auth.user) DB 승인 확정 전까지 아무것도 안 보여줌(데모 깜빡임 방지)
   const D = window.DB;
-  if (D && D.enabled && D.me) {
-    if (!D.approvedReady) { app.replaceChildren(loadingScreen()); return; }
+  if (D && D.enabled && A && A.user) {
+    if (!D.approvedReady || D.me !== A.user.uid) { app.replaceChildren(loadingScreen()); return; }
     if (!D.approved) { app.replaceChildren(pendingScreen()); return; }
   }
   if (PENDING_INVITE) { app.replaceChildren(acceptScreen()); return; }
