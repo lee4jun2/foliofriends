@@ -8,17 +8,24 @@
       }
     },
 
+    "approved": {
+      ".read": "auth != null",
+      "$uid": {
+        ".write": "auth.token.email === 'OWNER_EMAIL'"
+      }
+    },
+
     "holdings": {
       "$uid": {
         ".read": "auth != null && auth.uid === $uid",
-        ".write": "auth != null && auth.uid === $uid"
+        ".write": "auth != null && auth.uid === $uid && (root.child('approved/' + auth.uid).val() === true || auth.token.email === 'OWNER_EMAIL')"
       }
     },
 
     "shared": {
       "$uid": {
         ".read": "auth != null && (auth.uid === $uid || root.child('friends/' + $uid + '/' + auth.uid).exists())",
-        ".write": "auth != null && auth.uid === $uid"
+        ".write": "auth != null && auth.uid === $uid && (root.child('approved/' + auth.uid).val() === true || auth.token.email === 'OWNER_EMAIL')"
       }
     },
 
@@ -26,7 +33,7 @@
       "$uid": {
         ".read": "auth != null && auth.uid === $uid",
         "$friend": {
-          ".write": "auth != null && (auth.uid === $uid || auth.uid === $friend)",
+          ".write": "auth != null && (auth.uid === $uid || auth.uid === $friend) && (root.child('approved/' + auth.uid).val() === true || auth.token.email === 'OWNER_EMAIL')",
           ".validate": "newData.isBoolean()"
         }
       }
@@ -35,7 +42,7 @@
     "invites": {
       "$code": {
         ".read": "auth != null",
-        ".write": "auth != null && ((!data.exists() && newData.child('from').val() === auth.uid) || (data.exists() && data.child('from').val() === auth.uid))",
+        ".write": "auth != null && (root.child('approved/' + auth.uid).val() === true || auth.token.email === 'OWNER_EMAIL') && ((!data.exists() && newData.child('from').val() === auth.uid) || (data.exists() && data.child('from').val() === auth.uid))",
         ".validate": "newData.hasChildren(['from', 'exp'])"
       }
     }

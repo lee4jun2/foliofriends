@@ -18,10 +18,14 @@
 
   const INVITE_TTL = 30 * 60 * 1000; // 30분
 
+  const OWNER_EMAIL = String(cfg.ownerEmail || '').toLowerCase();
+
   const DB = {
     enabled: false, me: null, onAuth: null,
+    isAdmin: false, approved: false, approvedReady: false,
     syncProfile, saveHoldings, loadHoldings, saveShared, getShared,
     createInvite, getInvite, acceptInvite, watchFriends, unfriend, getUser,
+    approveUser, rejectUser, watchPending,
   };
   window.DB = DB;
 
@@ -31,11 +35,59 @@
   try { db = firebase.database(); } catch (e) { console.warn('[DB] 초기화 실패:', e.message); return; }
   DB.enabled = true;
 
+  let _approvedRef = null;
   firebase.auth().onAuthStateChanged(function (u) {
     DB.me = u ? u.uid : null;
-    if (u) syncProfile({ name: u.displayName, photo: u.photoURL });
-    if (typeof DB.onAuth === 'function') DB.onAuth(DB.me);
+    DB.isAdmin = !!(OWNER_EMAIL && u && u.email && u.email.toLowerCase() === OWNER_EMAIL);
+    if (_approvedRef) { _approvedRef.off(); _approvedRef = null; }
+    if (!u) { DB.approved = false; DB.approvedReady = true; if (DB.onAuth) DB.onAuth(null); return; }
+
+    // 신규 가입 감지 → 프로필 동기화 + (소유자면 자동승인 / 신규면 텔레그램 알림)
+    db.ref('users/' + u.uid).get().then(function (snap) {
+      const isNew = !snap.exists();
+      syncProfile({ name: u.displayName, photo: u.photoURL });
+      if (DB.isAdmin) db.ref('approved/' + u.uid).set(true);
+      else if (isNew) notifyNewUser(u);
+    }).catch(function () {});
+
+    // 승인 상태 실시간 구독 → onAuth 콜백으로 앱 게이트 갱신
+    _approvedRef = db.ref('approved/' + u.uid);
+    _approvedRef.on('value', function (s) {
+      // 승인제 미설정(ownerEmail 없음)이면 게이트 비활성 → 전원 허용
+      DB.approved = !OWNER_EMAIL || DB.isAdmin || s.val() === true;
+      DB.approvedReady = true;
+      if (DB.onAuth) DB.onAuth(DB.me);
+    });
   });
+
+  // 신규 가입 텔레그램 알림 (소유자 봇으로)
+  function notifyNewUser(u) {
+    const token = cfg.telegramBotToken, chat = cfg.telegramChatId;
+    if (!token || String(token).includes('YOUR_') || !chat || String(chat).includes('YOUR_')) return;
+    const text = '🆕 FolioFriends 신규 가입\n이름: ' + (u.displayName || '-') + '\n이메일: ' + (u.email || '-');
+    fetch('https://api.telegram.org/bot' + token + '/sendMessage', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ chat_id: chat, text: text }),
+    }).catch(function () {});
+  }
+
+  function approveUser(uid) { return db.ref('approved/' + uid).set(true); }
+  function rejectUser(uid) { return db.ref('approved/' + uid).remove(); }
+
+  // 승인 대기자 목록(소유자 전용) 실시간 구독
+  function watchPending(cb) {
+    if (!DB.isAdmin) { cb([]); return function () {}; }
+    const uref = db.ref('users');
+    const handler = uref.on('value', function (snap) {
+      db.ref('approved').get().then(function (asnap) {
+        const approved = asnap.val() || {};
+        const pending = [];
+        snap.forEach(function (c) { if (!approved[c.key]) pending.push(Object.assign({ uid: c.key }, c.val())); });
+        cb(pending);
+      }).catch(function () { cb([]); });
+    });
+    return function () { uref.off('value', handler); };
+  }
 
   function syncProfile(p) {
     if (!DB.me) return Promise.resolve();

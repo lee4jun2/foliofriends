@@ -266,6 +266,12 @@ function homeB(port) {
     row({ justifyContent: 'space-between', padding: '2px 0 18px' },
       txt('내 자산', { fontSize: 18, fontWeight: 800, color: C.t1, whiteSpace: 'nowrap' }),
       row({ gap: 8 }, eyeBtn(), iconBtn('share', () => goTab('feed')), profileBtn())),
+    (window.DB && window.DB.isAdmin && ADMIN.pending.length)
+      ? clk(() => push('admin'), { display: 'flex', alignItems: 'center', gap: 8, margin: '0 0 14px', padding: '12px 14px', borderRadius: 12, background: '#FFF1F0' },
+          icon('lock', 16, C.up, 1.8),
+          txt('가입 승인 대기 ' + ADMIN.pending.length + '명', { fontSize: 13.5, fontWeight: 700, color: C.t1 }),
+          el('div', { style: { flex: 1 } }), icon('chev', 16, C.up, 2))
+      : null,
     txt('총 자산', { fontSize: 13, fontWeight: 600, color: C.t3, marginBottom: 8 }),
     txt(won(port.total, state.hide), { fontSize: 34, fontWeight: 800, color: C.t1, letterSpacing: -0.8, fontVariantNumeric: 'tabular-nums' }),
     row({ gap: 8, marginTop: 14 },
@@ -856,6 +862,41 @@ function onboardingScreen() {
 let ONBOARD_SKIP = false;
 function needsOnboarding() { return useCommunity() && !loadUserHoldings() && !ONBOARD_SKIP; }
 
+/* ----- 가입 승인 (소유자 전용) ----- */
+let ADMIN = { pending: [] };
+let _unwatchPending = null;
+function startAdmin() {
+  if (!(window.DB && window.DB.isAdmin)) return;
+  if (_unwatchPending) _unwatchPending();
+  _unwatchPending = window.DB.watchPending(function (list) { ADMIN.pending = list; render(); });
+}
+
+function pendingScreen() {
+  return col({ flex: 1, minHeight: 0, justifyContent: 'center', alignItems: 'center', padding: '0 28px', background: C.card },
+    row({ justifyContent: 'center', width: 64, height: 64, borderRadius: 20, background: C.bg, marginBottom: 18 }, icon('lock', 30, C.t3, 1.8)),
+    txt('승인 대기 중', { fontSize: 19, fontWeight: 800, color: C.t1 }),
+    el('div', { style: { height: 10 } }),
+    txt('관리자 승인 후 이용할 수 있어요.', { fontSize: 14, fontWeight: 500, color: C.t3, textAlign: 'center' }),
+    txt('초대받은 분이라면 곧 승인돼요.', { fontSize: 14, fontWeight: 500, color: C.t3, textAlign: 'center' }),
+    el('div', { style: { height: 24 } }),
+    clk(function () { if (window.Auth) window.Auth.signOut(); }, { padding: '10px' }, txt('로그아웃', { fontSize: 14, fontWeight: 600, color: C.t3 })));
+}
+
+function adminScreen() {
+  return col({ flex: 1, minHeight: 0 },
+    el('div', { class: 'scrn', style: { flex: 1, padding: '12px 20px 24px' } },
+      txt('승인 대기 ' + ADMIN.pending.length + '명', { fontSize: 16, fontWeight: 800, color: C.t1, marginBottom: 8 }),
+      ADMIN.pending.length
+        ? col({}, ...ADMIN.pending.map(function (u) {
+            return row({ gap: 12, padding: '12px 0', borderBottom: '1px solid ' + C.line },
+              u.photo ? el('img', { src: u.photo, referrerpolicy: 'no-referrer', width: 42, height: 42, style: { width: 42, height: 42, borderRadius: 21, objectFit: 'cover', flex: 'none' } }) : avatar((u.name || 'U').slice(0, 2), C.t4, 42),
+              col({ flex: 1, minWidth: 0 }, txt(u.name || '사용자', { fontSize: 15, fontWeight: 700, color: C.t1 })),
+              clk(function () { window.DB.rejectUser(u.uid); }, { padding: '8px 12px', borderRadius: 9, background: C.bg, flex: 'none' }, txt('거절', { fontSize: 13, fontWeight: 700, color: C.t3 })),
+              clk(function () { window.DB.approveUser(u.uid).then(function () { render(); }); }, { padding: '8px 16px', borderRadius: 9, background: C.brand, flex: 'none' }, txt('승인', { fontSize: 13, fontWeight: 700, color: '#fff' })));
+          }))
+        : txt('대기 중인 사용자가 없어요.', { fontSize: 13, color: C.t3, marginTop: 8 })));
+}
+
 // 디버그/테스트 관찰용 훅 (top-level let은 window에 안 올라가므로 노출)
 if (typeof window !== 'undefined') window.__ff = () => ({ stage: OCR_STAGE, drafts: OCR_DRAFTS, msg: OCR_MSG, community: COMMUNITY, useCommunity: useCommunity() });
 
@@ -865,6 +906,12 @@ function render() {
   const app = document.getElementById('app');
   if (A && A.enabled && !A.ready) { app.replaceChildren(loadingScreen()); return; }
   if (A && A.enabled && !A.user) { app.replaceChildren(loginScreen()); return; }
+  // 가입 승인 게이트
+  const D = window.DB;
+  if (D && D.enabled && D.me) {
+    if (!D.approvedReady) { app.replaceChildren(loadingScreen()); return; }
+    if (!D.approved) { app.replaceChildren(pendingScreen()); return; }
+  }
   if (PENDING_INVITE) { app.replaceChildren(acceptScreen()); return; }
 
   const port = buildPortfolio();
@@ -877,10 +924,11 @@ function render() {
   else if (state.view === 'ranking') body = rankingScreen();
   else if (state.view === 'import') { header = backHeader('스크린샷 가져오기'); body = importScreen(); }
   else if (state.view === 'invite') { header = backHeader('친구'); body = inviteScreen(); }
+  else if (state.view === 'admin') { header = backHeader('가입 승인'); body = adminScreen(); }
 
   app.replaceChildren();
   if (header) app.append(header);
-  if (state.view === 'import' || state.view === 'invite') {
+  if (state.view === 'import' || state.view === 'invite' || state.view === 'admin') {
     app.append(body); // 자체 레이아웃/스크롤 관리
   } else {
     app.append(el('div', { class: 'scrn' }, body));
@@ -909,11 +957,14 @@ if (window.DB) {
   window.DB.onAuth = function (uid) {
     if (!uid) {
       if (_unwatchFollowing) { _unwatchFollowing(); _unwatchFollowing = null; }
+      if (_unwatchPending) { _unwatchPending(); _unwatchPending = null; }
       COMMUNITY = { following: [], byUid: {}, ready: false };
+      ADMIN = { pending: [] };
       render();
       return;
     }
     startCommunity();
+    startAdmin();
     processInviteFromUrl();
     window.DB.loadHoldings().then(function (items) {
       if (items && items.length) { saveUserHoldings(items); render(); }

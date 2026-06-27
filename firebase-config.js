@@ -20,4 +20,8 @@ window.FIREBASE_CONFIG = {
   messagingSenderId: 'YOUR_SENDER_ID',
   appId: 'YOUR_APP_ID',
   measurementId: 'YOUR_MEASUREMENT_ID',
+  // 가입 승인제 / 텔레그램 알림 (소유자 전용)
+  ownerEmail: 'YOUR_OWNER_EMAIL',          // 소유자 구글 로그인 이메일 (승인 권한)
+  telegramBotToken: 'YOUR_TELEGRAM_TOKEN', // 신규 가입 알림용 텔레그램 봇 토큰
+  telegramChatId: 'YOUR_TELEGRAM_CHAT_ID', // 알림 받을 내 채팅 ID
 };
