@@ -344,10 +344,34 @@ function holdingsScreen(port) {
       ...port.holdings.map(s => el('div', { style: { borderBottom: '1px solid ' + C.line } }, holdingRow(s, {})))));
 }
 
+// 실제 일봉 종가 시계열로 라인+영역 차트
+function realChart(closes, w, h, color) {
+  const min = Math.min(...closes), max = Math.max(...closes);
+  const range = (max - min) || 1;
+  const n = closes.length;
+  const X = (i) => (i / (n - 1)) * w;
+  const Y = (v) => h - 8 - ((v - min) / range) * (h - 16);
+  let line = '';
+  closes.forEach((v, i) => { line += (i === 0 ? 'M' : 'L') + X(i).toFixed(1) + ' ' + Y(v).toFixed(1) + ' '; });
+  const area = line + 'L' + w + ' ' + h + ' L0 ' + h + ' Z';
+  const gid = 'rc' + Math.round(min) + n;
+  return el('svg', { width: w, height: h, viewBox: '0 0 ' + w + ' ' + h, style: { width: '100%', height: h } },
+    el('defs', null, el('linearGradient', { id: gid, x1: 0, y1: 0, x2: 0, y2: 1 },
+      el('stop', { offset: '0%', 'stop-color': color, 'stop-opacity': 0.18 }),
+      el('stop', { offset: '100%', 'stop-color': color, 'stop-opacity': 0 }))),
+    el('path', { d: area, fill: 'url(#' + gid + ')' }),
+    el('path', { d: line, fill: 'none', stroke: color, 'stroke-width': 2.5, 'stroke-linecap': 'round', 'stroke-linejoin': 'round' }));
+}
+const CHART_PERIODS = { '1주': 5, '2주': 10, '1개월': 24 };
+let CHART_PERIOD = '1개월';
+
 function stockScreen(port) {
   const s = port.holdings.find(x => x.id === state.param) || port.holdings[0];
-  const up = s.ret >= 0;
-  const periods = ['1일', '1주', '1개월', '1년', '전체'];
+  const live = LIVE[s.y];
+  const allCloses = (live && live.closes) || [];
+  const periods = Object.keys(CHART_PERIODS);
+  const closes = allCloses.slice(-CHART_PERIODS[CHART_PERIOD]);
+  const trendColor = closes.length > 1 ? (closes[closes.length - 1] >= closes[0] ? C.up : C.down) : cc(s.ret);
   const rows = [
     ['보유 수량', s.shares + '주'],
     ['평균 단가', s.ccy === '$' ? '$' + s.avg.toFixed(2) : s.avg.toLocaleString('ko-KR') + '원'],
@@ -361,10 +385,15 @@ function stockScreen(port) {
       row({ gap: 10, alignItems: 'baseline', marginTop: 8 },
         txt(price(s), { fontSize: 28, fontWeight: 800, color: C.t1, fontVariantNumeric: 'tabular-nums' }),
         txt(pct(s.day) + ' 오늘', { fontSize: 15, fontWeight: 700, color: cc(s.day) }))),
-    el('div', { style: { padding: '10px 20px 0' } }, spark(s.cur * 1000 + s.shares, up, 334, 150, cc(s.ret))),
-    row({ gap: 6, padding: '8px 20px 18px', justifyContent: 'space-between' },
-      ...periods.map(pr => row({ justifyContent: 'center', flex: 1, padding: '6px 0', borderRadius: 8, background: pr === '1개월' ? C.t1 : 'transparent' },
-        txt(pr, { fontSize: 12.5, fontWeight: 700, color: pr === '1개월' ? '#fff' : C.t3 })))),
+    el('div', { style: { padding: '10px 20px 0' } },
+      closes.length > 1
+        ? realChart(closes, 334, 150, trendColor)
+        : col({ justifyContent: 'center', alignItems: 'center', height: 150 }, txt('시세 데이터 수집 중이에요', { fontSize: 13, fontWeight: 500, color: C.t4 }), txt('(최대 15분 내 표시)', { fontSize: 11.5, color: C.t4, marginTop: 4 }))),
+    closes.length > 1
+      ? row({ gap: 6, padding: '8px 20px 18px', justifyContent: 'space-between' },
+          ...periods.map(pr => clk(() => { CHART_PERIOD = pr; render(); }, { display: 'flex', justifyContent: 'center', flex: 1, padding: '6px 0', borderRadius: 8, background: pr === CHART_PERIOD ? C.t1 : 'transparent' },
+            txt(pr, { fontSize: 12.5, fontWeight: 700, color: pr === CHART_PERIOD ? '#fff' : C.t3 }))))
+      : el('div', { style: { height: 18 } }),
     col({ margin: '0 20px', background: C.bg, borderRadius: 16, padding: 18 },
       txt('내 보유 현황', { fontSize: 15, fontWeight: 800, color: C.t1, marginBottom: 14 }),
       ...rows.map((rw, k) => row({ justifyContent: 'space-between', padding: '9px 0', borderBottom: k < 3 ? '1px solid ' + C.line : 'none' },

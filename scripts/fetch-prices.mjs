@@ -12,15 +12,19 @@ const symbolsUrl = new URL('symbols.json', ROOT);
 const outUrl = new URL('prices.json', ROOT);
 
 async function fetchQuote(symbol) {
-  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?interval=1d&range=5d`;
+  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?interval=1d&range=1mo`;
   const res = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0' } });
   if (!res.ok) throw new Error(`${symbol}: HTTP ${res.status}`);
   const json = await res.json();
-  const meta = json?.chart?.result?.[0]?.meta;
+  const result = json?.chart?.result?.[0];
+  const meta = result?.meta;
   if (!meta || meta.regularMarketPrice == null) throw new Error(`${symbol}: no price`);
   const price = meta.regularMarketPrice;
   const prevClose = meta.chartPreviousClose ?? meta.previousClose ?? price;
-  return { price, prevClose, currency: meta.currency || null };
+  // 일봉 종가 시계열 (차트용) — 최근 ~22 거래일
+  let closes = (result?.indicators?.quote?.[0]?.close || []).filter((v) => v != null);
+  closes = closes.slice(-24).map((v) => Math.round(v * 100) / 100);
+  return { price, prevClose, currency: meta.currency || null, closes };
 }
 
 const DB_URL = 'https://foliofriends-3770e-default-rtdb.firebaseio.com';
