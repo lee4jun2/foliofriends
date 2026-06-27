@@ -24,11 +24,27 @@ const SEED_RAW = [
 ];
 
 const STORE_KEY = 'ff_holdings_v1';
+let _holdingsCache = null;  // 로그인 시 해당 uid의 보유내역(Firebase에서 로드)
+let _holdingsUid = null;
+function loggedInUid() { return (window.DB && window.DB.enabled && window.DB.me) ? window.DB.me : null; }
+
 function loadUserHoldings() {
+  const uid = loggedInUid();
+  if (uid) return (_holdingsUid === uid) ? _holdingsCache : null; // 계정별 격리 — 다른 계정/로컬 데이터 노출 방지
   try { const v = JSON.parse(localStorage.getItem(STORE_KEY) || 'null'); return (v && v.length) ? v : null; } catch (e) { return null; }
 }
-function saveUserHoldings(h) { localStorage.setItem(STORE_KEY, JSON.stringify(h)); _port = null; }
-function clearUserHoldings() { localStorage.removeItem(STORE_KEY); _port = null; }
+function saveUserHoldings(h) {
+  const uid = loggedInUid();
+  if (uid) { _holdingsCache = h; _holdingsUid = uid; if (window.DB) window.DB.saveHoldings(h); }
+  else { localStorage.setItem(STORE_KEY, JSON.stringify(h)); }
+  _port = null;
+}
+function clearUserHoldings() {
+  const uid = loggedInUid();
+  if (uid) { _holdingsCache = null; _holdingsUid = uid; if (window.DB) window.DB.saveHoldings([]); }
+  else { localStorage.removeItem(STORE_KEY); }
+  _port = null;
+}
 
 let _port = null;
 function buildPortfolio() {
@@ -931,9 +947,10 @@ render();
 //  - /shared/{me}:   비중·수익률만 — 팔로워 공개(금액 제외)
 function publishMine() {
   if (!(window.DB && window.DB.enabled && window.DB.me)) return;
+  const uh = loadUserHoldings();
+  if (!uh) return; // 보유내역 없으면 발행 안 함 (데모 시드가 공유되는 것 방지)
   try {
-    const uh = loadUserHoldings();
-    if (uh) window.DB.saveHoldings(uh);
+    window.DB.saveHoldings(uh);
     window.DB.saveShared(buildPortfolio());
   } catch (e) { /* noop */ }
 }
@@ -952,10 +969,14 @@ if (window.DB) {
     startCommunity();
     startAdmin();
     processInviteFromUrl();
+    // 이 계정의 보유내역만 로드 (없으면 null → 온보딩). 다른 계정/로컬 데이터 노출 방지.
     window.DB.loadHoldings().then(function (items) {
-      if (items && items.length) { saveUserHoldings(items); render(); }
+      _holdingsUid = uid;
+      _holdingsCache = (items && items.length) ? items : null;
+      _port = null;
+      render();
       publishMine();
-    }).catch(function () { publishMine(); });
+    }).catch(function () { _holdingsUid = uid; _holdingsCache = null; _port = null; render(); });
   };
 }
 

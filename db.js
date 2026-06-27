@@ -16,6 +16,9 @@
   const cfg = window.FIREBASE_CONFIG || {};
   const hasUrl = !!cfg.databaseURL && !String(cfg.databaseURL).includes('YOUR_');
 
+  // 가입 승인 권한을 가진 소유자(관리자) 이메일. 이 계정만 승인 가능.
+  const OWNER_EMAIL = 'leejunhyuk0205@gmail.com';
+
   const INVITE_TTL = 30 * 60 * 1000; // 30분
 
   const DB = {
@@ -36,29 +39,27 @@
   let _approvedRef = null;
   firebase.auth().onAuthStateChanged(function (u) {
     DB.me = u ? u.uid : null;
-    DB.isAdmin = false;
+    // 소유자(관리자)는 지정된 이메일 계정만.
+    DB.isAdmin = !!(u && u.email && u.email.toLowerCase() === OWNER_EMAIL);
+    DB.approved = false;
+    DB.approvedReady = false;
     if (_approvedRef) { _approvedRef.off(); _approvedRef = null; }
     if (!u) { DB.approved = false; DB.approvedReady = true; if (DB.onAuth) DB.onAuth(null); return; }
 
-    // 소유자 결정: 처음 로그인한 사람이 소유자(관리자)가 된다 — 이메일 불필요.
-    db.ref('config/owner').get().then(function (os) {
-      let owner = os.val();
-      if (!owner) { db.ref('config/owner').set(u.uid).catch(function () {}); owner = u.uid; }
-      DB.isAdmin = (owner === u.uid);
-      return db.ref('users/' + u.uid).get().then(function (snap) {
-        const isNew = !snap.exists();
-        syncProfile({ name: u.displayName, photo: u.photoURL });
-        if (DB.isAdmin) db.ref('approved/' + u.uid).set(true); // 소유자 자동 승인
-        else if (isNew) notifyNewUser(u);                      // 신규 가입 알림
-      });
-    }).catch(function () {}).then(function () {
-      // 승인 상태 실시간 구독 → 앱 게이트 갱신
-      _approvedRef = db.ref('approved/' + u.uid);
-      _approvedRef.on('value', function (s) {
-        DB.approved = DB.isAdmin || s.val() === true;
-        DB.approvedReady = true;
-        if (DB.onAuth) DB.onAuth(DB.me);
-      });
+    // 프로필 동기화 + (소유자 자동승인 / 신규 가입이면 텔레그램 알림)
+    db.ref('users/' + u.uid).get().then(function (snap) {
+      const isNew = !snap.exists();
+      syncProfile({ name: u.displayName, photo: u.photoURL });
+      if (DB.isAdmin) db.ref('approved/' + u.uid).set(true);
+      else if (isNew) notifyNewUser(u);
+    }).catch(function () {});
+
+    // 승인 상태 실시간 구독 → 미승인이면 앱 게이트가 막음
+    _approvedRef = db.ref('approved/' + u.uid);
+    _approvedRef.on('value', function (s) {
+      DB.approved = DB.isAdmin || s.val() === true;
+      DB.approvedReady = true;
+      if (DB.onAuth) DB.onAuth(DB.me);
     });
   });
 

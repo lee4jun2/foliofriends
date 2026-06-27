@@ -1,12 +1,5 @@
 {
   "rules": {
-    "config": {
-      "owner": {
-        ".read": "auth != null",
-        ".write": "auth != null && !data.exists() && newData.val() === auth.uid"
-      }
-    },
-
     "users": {
       ".read": "auth != null",
       "$uid": {
@@ -18,21 +11,21 @@
     "approved": {
       ".read": "auth != null",
       "$uid": {
-        ".write": "auth != null && root.child('config/owner').val() === auth.uid"
+        ".write": "auth.token.email === 'leejunhyuk0205@gmail.com'"
       }
     },
 
     "holdings": {
       "$uid": {
         ".read": "auth != null && auth.uid === $uid",
-        ".write": "auth != null && auth.uid === $uid && (root.child('approved/' + auth.uid).val() === true || root.child('config/owner').val() === auth.uid)"
+        ".write": "auth != null && auth.uid === $uid && (root.child('approved/' + auth.uid).val() === true || auth.token.email === 'leejunhyuk0205@gmail.com')"
       }
     },
 
     "shared": {
       "$uid": {
         ".read": "auth != null && (auth.uid === $uid || root.child('friends/' + $uid + '/' + auth.uid).exists())",
-        ".write": "auth != null && auth.uid === $uid && (root.child('approved/' + auth.uid).val() === true || root.child('config/owner').val() === auth.uid)"
+        ".write": "auth != null && auth.uid === $uid && (root.child('approved/' + auth.uid).val() === true || auth.token.email === 'leejunhyuk0205@gmail.com')"
       }
     },
 
@@ -40,7 +33,7 @@
       "$uid": {
         ".read": "auth != null && auth.uid === $uid",
         "$friend": {
-          ".write": "auth != null && (auth.uid === $uid || auth.uid === $friend) && (root.child('approved/' + auth.uid).val() === true || root.child('config/owner').val() === auth.uid)",
+          ".write": "auth != null && (auth.uid === $uid || auth.uid === $friend) && (root.child('approved/' + auth.uid).val() === true || auth.token.email === 'leejunhyuk0205@gmail.com')",
           ".validate": "newData.isBoolean()"
         }
       }
@@ -49,7 +42,7 @@
     "invites": {
       "$code": {
         ".read": "auth != null",
-        ".write": "auth != null && (root.child('approved/' + auth.uid).val() === true || root.child('config/owner').val() === auth.uid) && ((!data.exists() && newData.child('from').val() === auth.uid) || (data.exists() && data.child('from').val() === auth.uid))",
+        ".write": "auth != null && (root.child('approved/' + auth.uid).val() === true || auth.token.email === 'leejunhyuk0205@gmail.com') && ((!data.exists() && newData.child('from').val() === auth.uid) || (data.exists() && data.child('from').val() === auth.uid))",
         ".validate": "newData.hasChildren(['from', 'exp'])"
       }
     }
