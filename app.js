@@ -730,6 +730,29 @@ function render() {
 if (window.Auth) window.Auth.onChange = render;
 render();
 
+// 내 보유내역을 Firebase에 저장:
+//  - /holdings/{me}: 전체(금액 포함) — 본인 전용, 기기 간 동기화
+//  - /shared/{me}:   비중·수익률만 — 팔로워 공개(금액 제외)
+function publishMine() {
+  if (!(window.DB && window.DB.enabled && window.DB.me)) return;
+  try {
+    const uh = loadUserHoldings();
+    if (uh) window.DB.saveHoldings(uh);
+    window.DB.saveShared(buildPortfolio());
+  } catch (e) { /* noop */ }
+}
+
+// 로그인 시: 다른 기기에 저장해 둔 보유내역을 불러와 반영.
+if (window.DB) {
+  window.DB.onAuth = function (uid) {
+    if (!uid) { render(); return; }
+    window.DB.loadHoldings().then(function (items) {
+      if (items && items.length) { saveUserHoldings(items); render(); }
+      publishMine();
+    }).catch(function () { publishMine(); });
+  };
+}
+
 // 실시간 시세 로드 (같은 도메인 prices.json — CORS 불필요).
 async function loadPrices() {
   try {
@@ -740,6 +763,7 @@ async function loadPrices() {
     LIVE_UPDATED = data.updated || null;
     _port = null; // 캐시 무효화 → 실시간 가격으로 재계산
     render();
+    publishMine(); // 최신 비중·수익률 공유
   } catch (e) {
     // prices.json 이 아직 없으면 시드 가격으로 동작 (조용히 무시)
   }

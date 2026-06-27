@@ -1,0 +1,45 @@
+{
+  "rules": {
+    "users": {
+      ".read": "auth != null",
+      "$uid": {
+        ".write": "auth != null && auth.uid === $uid",
+        ".validate": "newData.hasChildren(['name'])"
+      }
+    },
+
+    "holdings": {
+      "$uid": {
+        ".read": "auth != null && auth.uid === $uid",
+        ".write": "auth != null && auth.uid === $uid"
+      }
+    },
+
+    "shared": {
+      "$uid": {
+        ".read": "auth != null && (auth.uid === $uid || root.child('following/' + auth.uid + '/' + $uid).exists())",
+        ".write": "auth != null && auth.uid === $uid"
+      }
+    },
+
+    "following": {
+      "$uid": {
+        ".read": "auth != null && auth.uid === $uid",
+        "$target": {
+          ".write": "auth != null && auth.uid === $uid",
+          ".validate": "newData.isBoolean()"
+        }
+      }
+    },
+
+    "followers": {
+      "$uid": {
+        ".read": "auth != null && auth.uid === $uid",
+        "$follower": {
+          ".write": "auth != null && auth.uid === $follower",
+          ".validate": "newData.isBoolean()"
+        }
+      }
+    }
+  }
+}
