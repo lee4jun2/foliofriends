@@ -358,11 +358,21 @@ function stockScreen(port) {
 }
 
 function feedScreen() {
-  const fr = friends();
+  const fr = feedFriends();
+  const community = useCommunity();
   return col({ padding: '4px 16px 28px', gap: 14 },
-    col({ padding: '14px 4px 6px', gap: 4 },
-      txt('친구 피드', { fontSize: 22, fontWeight: 800, color: C.t1 }),
-      txt('친구들이 공유한 포트폴리오를 둘러보세요', { fontSize: 13, fontWeight: 500, color: C.t3 })),
+    row({ padding: '14px 4px 6px', justifyContent: 'space-between', alignItems: 'flex-end' },
+      col({ gap: 4 },
+        txt('친구 피드', { fontSize: 22, fontWeight: 800, color: C.t1 }),
+        txt(community ? '팔로우한 친구들의 포트폴리오' : '친구들이 공유한 포트폴리오를 둘러보세요', { fontSize: 13, fontWeight: 500, color: C.t3 })),
+      community ? clk(() => { loadPeople(); push('people'); }, { display: 'flex', alignItems: 'center', gap: 4, background: C.tint, padding: '8px 12px', borderRadius: 10 },
+        icon('users', 16, C.brand, 1.8), txt('친구 찾기', { fontSize: 12.5, fontWeight: 700, color: C.brand })) : null),
+    (community && !fr.length)
+      ? col({ alignItems: 'center', gap: 10, padding: '50px 20px' },
+          txt('아직 팔로우한 친구가 없어요', { fontSize: 15, fontWeight: 700, color: C.t2 }),
+          txt('"친구 찾기"로 친구를 팔로우하면\n포트폴리오를 비중·수익률로 볼 수 있어요', { fontSize: 13, fontWeight: 500, color: C.t3, whiteSpace: 'pre-line', textAlign: 'center' }),
+          clk(() => { loadPeople(); push('people'); }, { marginTop: 8, padding: '12px 22px', borderRadius: 11, background: C.brand }, txt('친구 찾기', { fontSize: 14, fontWeight: 700, color: '#fff' })))
+      : null,
     ...fr.map(f => {
       const top = f.hold.slice(0, 3);
       const segs = f.hold.map((x, idx) => ({ w: x.w, color: ['#4C6EF5', '#15AABF', '#FAB005', '#9775FA', '#FF8787'][idx % 5] }));
@@ -389,8 +399,10 @@ function feedScreen() {
 }
 
 function friendScreen() {
-  const f = friends().find(x => x.id === state.param) || friends()[0];
-  const mine = new Set(['Apple', 'Tesla', 'TSLA', 'NVIDIA', '삼성전자', 'SK하이닉스', 'NAVER']);
+  const list = feedFriends();
+  const f = list.find(x => x.id === state.param) || list[0];
+  if (!f) return col({ padding: 40, alignItems: 'center' }, txt('포트폴리오를 불러올 수 없어요', { fontSize: 14, color: C.t3 }));
+  const mine = myHoldingNames();
   const palette = ['#4C6EF5', '#15AABF', '#FAB005', '#9775FA', '#FF8787'];
   const segs = f.hold.map((x, idx) => ({ w: x.w, color: palette[idx % palette.length] }));
   return col({ padding: '4px 20px 28px' },
@@ -422,13 +434,17 @@ function friendScreen() {
 }
 
 function rankingScreen() {
-  const me = { id: 'me', name: '나 (지훈)', short: '지훈', color: C.brand, ret: 27.7, isMe: true };
-  const list = [...friends(), me].sort((a, b) => b.ret - a.ret);
+  const community = useCommunity();
+  const fr = feedFriends();
+  const myRet = (() => { try { return Math.round(buildPortfolio().ret * 10) / 10; } catch (e) { return 0; } })();
+  const myName = (window.Auth && window.Auth.user && (window.Auth.user.name || '나')) || '나 (지훈)';
+  const me = { id: 'me', name: community ? myName : '나 (지훈)', short: myName.replace(/\s/g, '').slice(0, 2), color: C.brand, ret: community ? myRet : 27.7, isMe: true };
+  const list = [...fr, me].sort((a, b) => b.ret - a.ret);
   const medal = ['#F7B500', '#9AA5B1', '#CD8B5B'];
   return col({ padding: '4px 16px 28px' },
     col({ padding: '14px 4px 8px', gap: 4 },
       txt('수익률 랭킹', { fontSize: 22, fontWeight: 800, color: C.t1 }),
-      txt('이번 달 · 친구 ' + friends().length + '명과 비교', { fontSize: 13, fontWeight: 500, color: C.t3 })),
+      txt(community ? '팔로우한 친구 ' + fr.length + '명과 비교' : '이번 달 · 친구 ' + friends().length + '명과 비교', { fontSize: 13, fontWeight: 500, color: C.t3 })),
     col({ gap: 8, marginTop: 8 },
       ...list.map((f, k) => {
         const rank = k + 1;
@@ -696,8 +712,98 @@ function draftCard(d, i) {
       txt('평단가 ' + (d.avg != null ? d.avg.toLocaleString('ko-KR') + '원' : '?'), { fontSize: 12, fontWeight: 600, color: C.t2 })));
 }
 
+/* ===================== 커뮤니티(팔로우) ===================== */
+const COMM_PALETTE = ['#4C6EF5', '#15AABF', '#FAB005', '#9775FA', '#FF8787', '#20C997', '#FF922B'];
+let COMMUNITY = { following: [], byUid: {}, ready: false };
+let _unwatchFollowing = null;
+
+function useCommunity() { return !!(window.DB && window.DB.enabled && window.DB.me); }
+function hashIdx(s) { let h = 0; for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0; return Math.abs(h); }
+
+function startCommunity() {
+  if (!useCommunity()) return;
+  if (_unwatchFollowing) _unwatchFollowing();
+  _unwatchFollowing = window.DB.watchFollowing(function (uids) {
+    COMMUNITY.following = uids;
+    Promise.all(uids.map(function (uid) {
+      return Promise.all([window.DB.getUser(uid), window.DB.getShared(uid)]).then(function (r) {
+        COMMUNITY.byUid[uid] = { user: r[0], shared: r[1] };
+      }).catch(function () {});
+    })).then(function () { COMMUNITY.ready = true; render(); });
+  });
+}
+
+// 팔로우한 사용자들을 피드/랭킹용 형태로 변환
+function communityFriends() {
+  return COMMUNITY.following.map(function (uid) {
+    const e = COMMUNITY.byUid[uid] || {};
+    const u = e.user || {}; const sh = e.shared || { ret: 0, holdings: [] };
+    const nm = u.name || '사용자';
+    return {
+      id: uid, name: nm, short: nm.replace(/\s/g, '').slice(0, 2), photo: u.photo || null,
+      color: COMM_PALETTE[hashIdx(uid) % COMM_PALETTE.length], ret: sh.ret || 0,
+      time: '팔로잉', likes: 0, comments: 0,
+      hold: (sh.holdings || []).map(function (h) { return { n: h.name, w: h.weight, r: h.ret }; }),
+    };
+  });
+}
+
+// 피드/친구/랭킹이 쓰는 데이터: DB면 팔로잉, 아니면 데모
+function feedFriends() { return useCommunity() ? communityFriends() : friends(); }
+
+// 내 보유 종목명 집합 ("나도 보유" 표시용)
+function myHoldingNames() {
+  try { return new Set(buildPortfolio().holdings.map(function (s) { return s.name; })); }
+  catch (e) { return new Set(); }
+}
+
+/* ----- 사람 찾기 / 팔로우 화면 ----- */
+let PEOPLE = { q: '', results: [], loading: false, followingSet: new Set() };
+
+function loadPeople() {
+  if (!useCommunity()) return;
+  PEOPLE.loading = true; render();
+  window.DB.searchUsers(PEOPLE.q).then(function (list) {
+    PEOPLE.results = list;
+    PEOPLE.followingSet = new Set(COMMUNITY.following);
+    PEOPLE.loading = false; render();
+  }).catch(function () { PEOPLE.loading = false; render(); });
+}
+
+function peopleScreen() {
+  const search = el('input', {
+    type: 'text', value: PEOPLE.q, placeholder: '이름으로 친구 찾기',
+    style: { flex: 1, border: 'none', outline: 'none', fontSize: 15, fontFamily: 'inherit', background: 'transparent', color: C.t1 },
+  });
+  search.addEventListener('input', function () { PEOPLE.q = search.value; });
+  search.addEventListener('keydown', function (e) { if (e.key === 'Enter') loadPeople(); });
+
+  const rows = PEOPLE.results.map(function (u) {
+    const following = PEOPLE.followingSet.has(u.uid);
+    return row({ gap: 12, padding: '12px 0', borderBottom: '1px solid ' + C.line },
+      u.photo
+        ? el('img', { src: u.photo, referrerpolicy: 'no-referrer', width: 42, height: 42, style: { width: 42, height: 42, borderRadius: 21, objectFit: 'cover', flex: 'none' } })
+        : avatar((u.name || 'U').slice(0, 2), COMM_PALETTE[hashIdx(u.uid) % COMM_PALETTE.length], 42),
+      col({ flex: 1, gap: 2, minWidth: 0 },
+        txt(u.name || '사용자', { fontSize: 15, fontWeight: 700, color: C.t1 })),
+      clk(function () {
+        const act = following ? window.DB.unfollow(u.uid) : window.DB.follow(u.uid);
+        act.then(function () { if (following) PEOPLE.followingSet.delete(u.uid); else PEOPLE.followingSet.add(u.uid); render(); });
+      }, { padding: '8px 16px', borderRadius: 9, background: following ? C.bg : C.brand, flex: 'none' },
+        txt(following ? '팔로잉' : '팔로우', { fontSize: 13, fontWeight: 700, color: following ? C.t2 : '#fff' })));
+  });
+
+  return col({ flex: 1, minHeight: 0 },
+    row({ gap: 8, margin: '12px 20px', padding: '10px 14px', borderRadius: 12, background: C.bg },
+      icon('users', 18, C.t3, 1.8), search,
+      clk(loadPeople, { padding: '4px 8px' }, txt('검색', { fontSize: 13, fontWeight: 700, color: C.brand }))),
+    el('div', { class: 'scrn', style: { flex: 1, padding: '0 20px 20px' } },
+      PEOPLE.loading ? txt('검색 중…', { fontSize: 13, color: C.t3 })
+        : (rows.length ? rows : txt(PEOPLE.q ? '검색 결과가 없어요' : '이름을 입력해 친구를 찾아보세요', { fontSize: 13, color: C.t3 }))));
+}
+
 // 디버그/테스트 관찰용 훅 (top-level let은 window에 안 올라가므로 노출)
-if (typeof window !== 'undefined') window.__ff = () => ({ stage: OCR_STAGE, drafts: OCR_DRAFTS, msg: OCR_MSG });
+if (typeof window !== 'undefined') window.__ff = () => ({ stage: OCR_STAGE, drafts: OCR_DRAFTS, msg: OCR_MSG, community: COMMUNITY, useCommunity: useCommunity() });
 
 /* ===================== Render ===================== */
 function render() {
@@ -712,14 +818,15 @@ function render() {
   else if (state.view === 'holdings') { header = backHeader('보유 종목', eyeBtn()); body = holdingsScreen(port); }
   else if (state.view === 'stock') { const s = port.holdings.find(x => x.id === state.param) || port.holdings[0]; header = backHeader(s.name, iconBtn('star')); body = stockScreen(port); }
   else if (state.view === 'feed') body = feedScreen();
-  else if (state.view === 'friend') { const f = friends().find(x => x.id === state.param) || friends()[0]; header = backHeader(f.name); body = friendScreen(); }
+  else if (state.view === 'friend') { const l = feedFriends(); const f = l.find(x => x.id === state.param) || l[0]; header = backHeader(f ? f.name : '포트폴리오'); body = friendScreen(); }
   else if (state.view === 'ranking') body = rankingScreen();
   else if (state.view === 'import') { header = backHeader('스크린샷 가져오기'); body = importScreen(); }
+  else if (state.view === 'people') { header = backHeader('친구 찾기'); body = peopleScreen(); }
 
   app.replaceChildren();
   if (header) app.append(header);
-  if (state.view === 'import') {
-    app.append(body); // importScreen이 자체 레이아웃/스크롤 관리
+  if (state.view === 'import' || state.view === 'people') {
+    app.append(body); // 자체 레이아웃/스크롤 관리
   } else {
     app.append(el('div', { class: 'scrn' }, body));
   }
@@ -745,7 +852,13 @@ function publishMine() {
 // 로그인 시: 다른 기기에 저장해 둔 보유내역을 불러와 반영.
 if (window.DB) {
   window.DB.onAuth = function (uid) {
-    if (!uid) { render(); return; }
+    if (!uid) {
+      if (_unwatchFollowing) { _unwatchFollowing(); _unwatchFollowing = null; }
+      COMMUNITY = { following: [], byUid: {}, ready: false };
+      render();
+      return;
+    }
+    startCommunity();
     window.DB.loadHoldings().then(function (items) {
       if (items && items.length) { saveUserHoldings(items); render(); }
       publishMine();
