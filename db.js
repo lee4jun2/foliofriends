@@ -18,8 +18,6 @@
 
   const INVITE_TTL = 30 * 60 * 1000; // 30분
 
-  const OWNER_EMAIL = String(cfg.ownerEmail || '').toLowerCase();
-
   const DB = {
     enabled: false, me: null, onAuth: null,
     isAdmin: false, approved: false, approvedReady: false,
@@ -38,25 +36,29 @@
   let _approvedRef = null;
   firebase.auth().onAuthStateChanged(function (u) {
     DB.me = u ? u.uid : null;
-    DB.isAdmin = !!(OWNER_EMAIL && u && u.email && u.email.toLowerCase() === OWNER_EMAIL);
+    DB.isAdmin = false;
     if (_approvedRef) { _approvedRef.off(); _approvedRef = null; }
     if (!u) { DB.approved = false; DB.approvedReady = true; if (DB.onAuth) DB.onAuth(null); return; }
 
-    // 신규 가입 감지 → 프로필 동기화 + (소유자면 자동승인 / 신규면 텔레그램 알림)
-    db.ref('users/' + u.uid).get().then(function (snap) {
-      const isNew = !snap.exists();
-      syncProfile({ name: u.displayName, photo: u.photoURL });
-      if (DB.isAdmin) db.ref('approved/' + u.uid).set(true);
-      else if (isNew) notifyNewUser(u);
-    }).catch(function () {});
-
-    // 승인 상태 실시간 구독 → onAuth 콜백으로 앱 게이트 갱신
-    _approvedRef = db.ref('approved/' + u.uid);
-    _approvedRef.on('value', function (s) {
-      // 승인제 미설정(ownerEmail 없음)이면 게이트 비활성 → 전원 허용
-      DB.approved = !OWNER_EMAIL || DB.isAdmin || s.val() === true;
-      DB.approvedReady = true;
-      if (DB.onAuth) DB.onAuth(DB.me);
+    // 소유자 결정: 처음 로그인한 사람이 소유자(관리자)가 된다 — 이메일 불필요.
+    db.ref('config/owner').get().then(function (os) {
+      let owner = os.val();
+      if (!owner) { db.ref('config/owner').set(u.uid).catch(function () {}); owner = u.uid; }
+      DB.isAdmin = (owner === u.uid);
+      return db.ref('users/' + u.uid).get().then(function (snap) {
+        const isNew = !snap.exists();
+        syncProfile({ name: u.displayName, photo: u.photoURL });
+        if (DB.isAdmin) db.ref('approved/' + u.uid).set(true); // 소유자 자동 승인
+        else if (isNew) notifyNewUser(u);                      // 신규 가입 알림
+      });
+    }).catch(function () {}).then(function () {
+      // 승인 상태 실시간 구독 → 앱 게이트 갱신
+      _approvedRef = db.ref('approved/' + u.uid);
+      _approvedRef.on('value', function (s) {
+        DB.approved = DB.isAdmin || s.val() === true;
+        DB.approvedReady = true;
+        if (DB.onAuth) DB.onAuth(DB.me);
+      });
     });
   });
 
