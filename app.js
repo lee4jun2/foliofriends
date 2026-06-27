@@ -685,38 +685,38 @@ async function runOcrAndParse() {
   }
 }
 
-// 주식수 화면(수량) + 평단가 화면(평단가)을 같은 순서로 병합
+// 주식수 화면(수량) + 평단가 화면(평단가)을 종목명(사전 매칭)으로 병합.
+// 인덱스가 아니라 이름으로 짝지어 한 화면에서 종목이 빠져도 밀리지 않게 한다.
 function mergeViews(sharesList, priceList) {
   const fx = (LIVE['KRW=X'] && LIVE['KRW=X'].price) || 1380;
-  const isUsd = (y) => !!(y && !/\.K[SQ]$/i.test(y));
+  const isUsd = (y, p) => (p ? !!p.usd : !!(y && !/\.K[SQ]$/i.test(y)));
+  const keyOf = (x) => (x ? (x.y || ((x.name || '').replace(/\s/g, '') || null)) : null);
+  const mk = (s, p) => {
+    const y = (p && p.y) || (s && s.y) || null;
+    const usd = isUsd(y, p);
+    let avg = p ? p.avg : (s ? s.avg : null);
+    if (!p && s && s.avg && usd) avg = Math.round((s.avg / fx) * 100) / 100; // 주식수 화면만일 때 미국은 환율 환산
+    return { name: (p && p.name) || (s && s.name) || '', y, usd, shares: s ? s.shares : null, avg: avg || null };
+  };
+
   if (sharesList.length && priceList.length) {
-    const n = Math.max(sharesList.length, priceList.length);
+    const priceByKey = new Map();
+    priceList.forEach((p) => { const k = keyOf(p); if (k && !priceByKey.has(k)) priceByKey.set(k, p); });
+    const usedP = new Set();
     const out = [];
-    for (let i = 0; i < n; i++) {
-      const s = sharesList[i], p = priceList[i];
-      const y = (p && p.y) || (s && s.y) || null;
-      out.push({
-        name: (p && p.name) || (s && s.name) || '',
-        y, usd: p ? !!p.usd : isUsd(y),
-        shares: s ? s.shares : null,
-        avg: p ? p.avg : null,
-      });
-    }
+    sharesList.forEach((s) => {
+      const k = keyOf(s);
+      let p = k ? priceByKey.get(k) : null;
+      if (p && usedP.has(p)) p = null;
+      if (p) usedP.add(p);
+      out.push(mk(s, p));
+    });
+    // 평단가 화면에만 있던 종목 추가 (수량은 사용자 입력)
+    priceList.forEach((p) => { if (!usedP.has(p)) out.push(mk(null, p)); });
     return out.filter((d) => d.name);
   }
-  // 주식 수 화면만: 평단가는 역산(원화) → 미국은 환율로 달러 환산
-  if (sharesList.length) {
-    return sharesList.map((s) => {
-      const usd = isUsd(s.y);
-      let avg = s.avg;
-      if (usd && avg) avg = Math.round((avg / fx) * 100) / 100;
-      return { name: s.name, y: s.y, usd, shares: s.shares, avg: avg || null };
-    });
-  }
-  // 평단가 화면만: 수량은 사용자 입력
-  if (priceList.length) {
-    return priceList.map((p) => ({ name: p.name, y: p.y, usd: !!p.usd, shares: null, avg: p.avg }));
-  }
+  if (sharesList.length) return sharesList.map((s) => mk(s, null)).filter((d) => d.name);
+  if (priceList.length) return priceList.map((p) => mk(null, p)).filter((d) => d.name);
   return [];
 }
 
