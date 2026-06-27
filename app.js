@@ -9,17 +9,30 @@ const C = {
 const KRW = 1380;
 
 /* ===================== Data ===================== */
+// 실시간 시세 (prices.json 에서 채워짐): { yahooSymbol: {price, prevClose, currency, time} }
+let LIVE = {};
+let LIVE_UPDATED = null;
+
 let _port = null;
 function buildPortfolio() {
   if (_port) return _port;
   const raw = [
-    { id: 'aapl', name: 'Apple', ticker: 'AAPL', mkt: 'US', color: '#4C6EF5', shares: 60, avg: 182, cur: 234, day: 1.1, ccy: '$' },
-    { id: 'nvda', name: 'NVIDIA', ticker: 'NVDA', mkt: 'US', color: '#15AABF', shares: 50, avg: 98, cur: 172, day: 3.2, ccy: '$' },
-    { id: 'tsla', name: 'Tesla', ticker: 'TSLA', mkt: 'US', color: '#FF8787', shares: 30, avg: 245, cur: 298, day: -0.8, ccy: '$' },
-    { id: 'sse', name: '삼성전자', ticker: '005930', mkt: 'KR', color: '#20C997', shares: 120, avg: 68000, cur: 79200, day: 0.9, ccy: '₩' },
-    { id: 'skh', name: 'SK하이닉스', ticker: '000660', mkt: 'KR', color: '#FAB005', shares: 40, avg: 152000, cur: 198500, day: 2.4, ccy: '₩' },
-    { id: 'nav', name: 'NAVER', ticker: '035420', mkt: 'KR', color: '#9775FA', shares: 25, avg: 210000, cur: 188000, day: -1.2, ccy: '₩' },
+    { id: 'aapl', name: 'Apple', ticker: 'AAPL', y: 'AAPL', mkt: 'US', color: '#4C6EF5', shares: 30, avg: 240, cur: 283, day: 1.1, ccy: '$' },
+    { id: 'nvda', name: 'NVIDIA', ticker: 'NVDA', y: 'NVDA', mkt: 'US', color: '#15AABF', shares: 45, avg: 150, cur: 192, day: 3.2, ccy: '$' },
+    { id: 'tsla', name: 'Tesla', ticker: 'TSLA', y: 'TSLA', mkt: 'US', color: '#FF8787', shares: 18, avg: 410, cur: 379, day: -0.8, ccy: '$' },
+    { id: 'sse', name: '삼성전자', ticker: '005930', y: '005930.KS', mkt: 'KR', color: '#20C997', shares: 35, avg: 290000, cur: 339500, day: 0.9, ccy: '₩' },
+    { id: 'skh', name: 'SK하이닉스', ticker: '000660', y: '000660.KS', mkt: 'KR', color: '#FAB005', shares: 4, avg: 2200000, cur: 2673000, day: 2.4, ccy: '₩' },
+    { id: 'nav', name: 'NAVER', ticker: '035420', y: '035420.KS', mkt: 'KR', color: '#9775FA', shares: 45, avg: 210000, cur: 196400, day: -1.2, ccy: '₩' },
   ];
+  // 실시간 시세가 있으면 현재가/일간등락을 덮어쓴다.
+  raw.forEach(s => {
+    const q = s.y && LIVE[s.y];
+    if (q && q.price) {
+      s.cur = q.price;
+      s.live = true;
+      if (q.prevClose) s.day = (q.price - q.prevClose) / q.prevClose * 100;
+    }
+  });
   let total = 0, cost = 0, dayPnl = 0;
   raw.forEach(s => {
     const m = s.ccy === '$' ? KRW : 1;
@@ -75,9 +88,20 @@ const pct = n => (n >= 0 ? '+' : '') + n.toFixed(1) + '%';
 const cc = n => n >= 0 ? C.up : C.down;
 const price = s => s.ccy === '$' ? '$' + s.cur.toFixed(2) : s.cur.toLocaleString('ko-KR') + '원';
 
+// "실시간 시세 · HH:MM 기준" 표시 (라이브 데이터 있을 때만).
+function liveStamp() {
+  if (!LIVE_UPDATED) return null;
+  const d = new Date(LIVE_UPDATED);
+  const hh = String(d.getHours()).padStart(2, '0');
+  const mm = String(d.getMinutes()).padStart(2, '0');
+  return row({ gap: 5, marginTop: 12 },
+    el('div', { style: { width: 6, height: 6, borderRadius: 3, background: '#22C55E' } }),
+    txt('실시간 시세 · ' + hh + ':' + mm + ' 기준', { fontSize: 11.5, fontWeight: 600, color: C.t3 }));
+}
+
 /* ===================== DOM helpers ===================== */
 const SVG_NS = 'http://www.w3.org/2000/svg';
-const SVG_TAGS = new Set(['svg', 'path', 'circle', 'line', 'rect', 'polygon', 'defs', 'linearGradient', 'stop', 'g']);
+const SVG_TAGS = new Set(['svg', 'path', 'circle', 'ellipse', 'line', 'rect', 'polygon', 'defs', 'linearGradient', 'stop', 'g']);
 const UNITLESS = new Set(['fontWeight', 'flex', 'flexGrow', 'flexShrink', 'opacity', 'zIndex', 'lineHeight', 'order', 'strokeWidth']);
 
 function el(tag, props, ...kids) {
@@ -117,8 +141,8 @@ const clk = (onClick, s, ...c) => el('div', { onClick, style: { cursor: 'pointer
 function icon(name, size = 24, color = C.t1, sw = 2) {
   const kids = [];
   const p = (d, i) => el('path', { key: i, d });
-  if (name === 'eye') { kids.push(p('M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7z'), el('circle', { cx: 12, cy: 12, r: 3 })); }
-  else if (name === 'eyeoff') { kids.push(p('M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7z'), el('circle', { cx: 12, cy: 12, r: 3 }), el('line', { x1: 3, y1: 3, x2: 21, y2: 21 })); }
+  if (name === 'eye') { kids.push(el('ellipse', { cx: 12, cy: 12, rx: 11, ry: 7 }), el('circle', { cx: 12, cy: 12, r: 3 })); }
+  else if (name === 'eyeoff') { kids.push(el('ellipse', { cx: 12, cy: 12, rx: 11, ry: 7 }), el('circle', { cx: 12, cy: 12, r: 3 }), el('line', { x1: 3, y1: 3, x2: 21, y2: 21 })); }
   else if (name === 'chev') { kids.push(p('M9 18l6-6-6-6')); }
   else if (name === 'back') { kids.push(p('M19 12H5'), p('M12 19l-7-7 7-7')); }
   else if (name === 'lock') { kids.push(el('rect', { x: 5, y: 11, width: 14, height: 10, rx: 2 }), p('M8 11V7a4 4 0 0 1 8 0v4')); }
@@ -231,9 +255,11 @@ function homeB(port) {
       row({ gap: 8 }, eyeBtn(), iconBtn('share', () => goTab('feed')), profileBtn())),
     txt('총 자산', { fontSize: 13, fontWeight: 600, color: C.t3, marginBottom: 8 }),
     txt(won(port.total, state.hide), { fontSize: 34, fontWeight: 800, color: C.t1, letterSpacing: -0.8, fontVariantNumeric: 'tabular-nums' }),
-    row({ gap: 8, marginTop: 14, marginBottom: 18 },
+    row({ gap: 8, marginTop: 14 },
       pill('오늘', pct(port.dayPct), cc(port.dayPct)),
       pill('총 수익', pct(port.ret), cc(port.ret))),
+    liveStamp() || el('div', { style: { height: 4 } }),
+    el('div', { style: { height: 14 } }),
     divider(),
     row({ padding: '14px 0', alignItems: 'stretch' },
       col({ flex: 1, gap: 6, minWidth: 0 },
@@ -499,3 +525,21 @@ function render() {
 // 인증 상태가 바뀌면 다시 그린다.
 if (window.Auth) window.Auth.onChange = render;
 render();
+
+// 실시간 시세 로드 (같은 도메인 prices.json — CORS 불필요).
+async function loadPrices() {
+  try {
+    const res = await fetch('./prices.json', { cache: 'no-store' });
+    if (!res.ok) return;
+    const data = await res.json();
+    LIVE = data.quotes || {};
+    LIVE_UPDATED = data.updated || null;
+    _port = null; // 캐시 무효화 → 실시간 가격으로 재계산
+    render();
+  } catch (e) {
+    // prices.json 이 아직 없으면 시드 가격으로 동작 (조용히 무시)
+  }
+}
+loadPrices();
+// 앱이 열려 있는 동안 5분마다 갱신
+setInterval(loadPrices, 5 * 60 * 1000);

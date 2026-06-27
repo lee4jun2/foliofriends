@@ -3,3 +3,6 @@
 node_modules/
 .vscode/
 .idea/
+
+# 배포 시 자동 생성(시세)
+prices.json

@@ -3,6 +3,9 @@ name: Deploy to GitHub Pages
 on:
   push:
     branches: [main]
+  # 장중 시세 갱신: 15분마다 재배포(prices.json 새로 생성). 공개 repo는 Actions 무료/무제한.
+  schedule:
+    - cron: '*/15 * * * *'
   workflow_dispatch:
 
 permissions:
@@ -22,6 +25,14 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      # 실시간 시세 생성 (Yahoo Finance, 서버사이드 → CORS 무관)
+      - name: Fetch live prices → prices.json
+        run: node scripts/fetch-prices.mjs
 
       # Firebase 웹 config를 GitHub Secrets에서 생성 (소스에는 두지 않음)
       - name: Generate firebase-config.js from secrets
