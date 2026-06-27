@@ -41,6 +41,7 @@
     DB.me = u ? u.uid : null;
     // 소유자(관리자)는 지정된 이메일 계정만.
     DB.isAdmin = !!(u && u.email && u.email.toLowerCase() === OWNER_EMAIL);
+    if (u) console.log('[FF] 로그인:', u.email, '| 관리자(소유자):', DB.isAdmin, '| 소유자이메일:', OWNER_EMAIL);
     DB.approved = false;
     DB.approvedReady = false;
     if (_approvedRef) { _approvedRef.off(); _approvedRef = null; }
@@ -87,18 +88,20 @@
     return db.ref().update(updates);
   }
 
-  // 승인 대기자 목록(소유자 전용) 실시간 구독 — 승인/거절된 사람 제외
+  // 승인 대기자 목록(소유자 전용) 실시간 구독 — 승인/거절된 사람 제외.
+  // 규칙 미적용 등으로 approved/rejected 읽기가 막혀도 빈 객체로 견딘다.
   function watchPending(cb) {
     if (!DB.isAdmin) { cb([]); return function () {}; }
     const uref = db.ref('users');
+    const getMap = (path) => db.ref(path).get().then((s) => s.val() || {}).catch(() => ({}));
     const handler = uref.on('value', function (snap) {
-      Promise.all([db.ref('approved').get(), db.ref('rejected').get()]).then(function (r) {
-        const approved = r[0].val() || {}, rejected = r[1].val() || {};
+      Promise.all([getMap('approved'), getMap('rejected')]).then(function (r) {
+        const approved = r[0], rejected = r[1];
         const pending = [];
         snap.forEach(function (c) { if (!approved[c.key] && !rejected[c.key]) pending.push(Object.assign({ uid: c.key }, c.val())); });
         cb(pending);
-      }).catch(function () { cb([]); });
-    });
+      });
+    }, function () { cb([]); });
     return function () { uref.off('value', handler); };
   }
 

@@ -283,11 +283,11 @@ function homeB(port) {
     row({ justifyContent: 'space-between', padding: '2px 0 18px' },
       txt('내 자산', { fontSize: 18, fontWeight: 800, color: C.t1, whiteSpace: 'nowrap' }),
       row({ gap: 8 }, eyeBtn(), iconBtn('share', () => goTab('feed')), profileBtn())),
-    (window.DB && window.DB.isAdmin && ADMIN.pending.length)
-      ? clk(() => push('admin'), { display: 'flex', alignItems: 'center', gap: 8, margin: '0 0 14px', padding: '12px 14px', borderRadius: 12, background: '#FFF1F0' },
-          icon('lock', 16, C.up, 1.8),
-          txt('가입 승인 대기 ' + ADMIN.pending.length + '명', { fontSize: 13.5, fontWeight: 700, color: C.t1 }),
-          el('div', { style: { flex: 1 } }), icon('chev', 16, C.up, 2))
+    (window.DB && window.DB.isAdmin)
+      ? clk(() => push('admin'), { display: 'flex', alignItems: 'center', gap: 8, margin: '0 0 14px', padding: '12px 14px', borderRadius: 12, background: ADMIN.pending.length ? '#FFF1F0' : C.bg },
+          icon('lock', 16, ADMIN.pending.length ? C.up : C.t3, 1.8),
+          txt(ADMIN.pending.length ? ('가입 승인 대기 ' + ADMIN.pending.length + '명') : '가입 승인 관리', { fontSize: 13.5, fontWeight: 700, color: C.t1 }),
+          el('div', { style: { flex: 1 } }), icon('chev', 16, ADMIN.pending.length ? C.up : C.t4, 2))
       : null,
     txt('총 자산', { fontSize: 13, fontWeight: 600, color: C.t3, marginBottom: 8 }),
     txt(won(port.total, state.hide), { fontSize: 34, fontWeight: 800, color: C.t1, letterSpacing: -0.8, fontVariantNumeric: 'tabular-nums' }),
@@ -589,7 +589,7 @@ function profileBtn() {
   const inner = u.photo
     ? el('img', { src: u.photo, referrerpolicy: 'no-referrer', width: 36, height: 36, style: { width: 36, height: 36, objectFit: 'cover' } })
     : txt((u.name || u.email || 'U')[0].toUpperCase(), { fontSize: 15, fontWeight: 700, color: C.t2 });
-  return clk(() => { if (confirm((u.name || u.email) + '님, 로그아웃 하시겠어요?')) A.signOut(); },
+  return clk(() => { if (confirm('로그인 계정: ' + (u.email || u.name) + '\n\n로그아웃 하시겠어요?')) A.signOut(); },
     { width: 36, height: 36, borderRadius: 18, overflow: 'hidden', background: C.bg, display: 'flex', alignItems: 'center', justifyContent: 'center', flex: 'none' },
     inner);
 }
@@ -959,9 +959,9 @@ function processInviteFromUrl() {
 
 /* ----- 온보딩 (신규 로그인·보유내역 없음) ----- */
 function onboardingScreen() {
-  const adminBanner = (window.DB && window.DB.isAdmin && ADMIN.pending.length)
-    ? clk(() => push('admin'), { position: 'absolute', top: 14, left: 20, right: 20, display: 'flex', alignItems: 'center', gap: 8, padding: '12px 14px', borderRadius: 12, background: '#FFF1F0' },
-        icon('lock', 16, C.up, 1.8), txt('가입 승인 대기 ' + ADMIN.pending.length + '명', { fontSize: 13.5, fontWeight: 700, color: C.t1 }), el('div', { style: { flex: 1 } }), icon('chev', 16, C.up, 2))
+  const adminBanner = (window.DB && window.DB.isAdmin)
+    ? clk(() => push('admin'), { position: 'absolute', top: 14, left: 20, right: 20, display: 'flex', alignItems: 'center', gap: 8, padding: '12px 14px', borderRadius: 12, background: ADMIN.pending.length ? '#FFF1F0' : C.bg },
+        icon('lock', 16, ADMIN.pending.length ? C.up : C.t3, 1.8), txt(ADMIN.pending.length ? ('가입 승인 대기 ' + ADMIN.pending.length + '명') : '가입 승인 관리', { fontSize: 13.5, fontWeight: 700, color: C.t1 }), el('div', { style: { flex: 1 } }), icon('chev', 16, ADMIN.pending.length ? C.up : C.t4, 2))
     : null;
   return col({ flex: 1, minHeight: 0, justifyContent: 'center', alignItems: 'center', padding: '0 28px', background: C.card, position: 'relative' },
     adminBanner,
@@ -1001,7 +1001,8 @@ function pendingScreen() {
 function adminScreen() {
   return col({ flex: 1, minHeight: 0 },
     el('div', { class: 'scrn', style: { flex: 1, padding: '12px 20px 24px' } },
-      txt('승인 대기 ' + ADMIN.pending.length + '명', { fontSize: 16, fontWeight: 800, color: C.t1, marginBottom: 8 }),
+      txt('승인 대기 ' + ADMIN.pending.length + '명', { fontSize: 16, fontWeight: 800, color: C.t1, marginBottom: 4 }),
+      txt('내 계정: ' + ((window.Auth && window.Auth.user && window.Auth.user.email) || '-') + (window.DB && window.DB.isAdmin ? ' (관리자)' : ''), { fontSize: 12, fontWeight: 500, color: C.t3, marginBottom: 12 }),
       ADMIN.pending.length
         ? col({}, ...ADMIN.pending.map(function (u) {
             return row({ gap: 12, padding: '12px 0', borderBottom: '1px solid ' + C.line },
