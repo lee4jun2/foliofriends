@@ -26,7 +26,7 @@
     isAdmin: false, approved: false, approvedReady: false,
     syncProfile, saveHoldings, loadHoldings, saveShared, getShared,
     createInvite, getInvite, acceptInvite, watchFriends, unfriend, getUser,
-    approveUser, rejectUser, watchPending,
+    approveUser, rejectUser, watchPending, addSymbols,
   };
   window.DB = DB;
 
@@ -74,22 +74,44 @@
     }).catch(function () {});
   }
 
-  function approveUser(uid) { return db.ref('approved/' + uid).set(true); }
-  function rejectUser(uid) { return db.ref('approved/' + uid).remove(); }
+  function approveUser(uid) {
+    const updates = {};
+    updates['approved/' + uid] = true;
+    updates['rejected/' + uid] = null; // 거절 해제
+    return db.ref().update(updates);
+  }
+  function rejectUser(uid) {
+    const updates = {};
+    updates['rejected/' + uid] = true;
+    updates['approved/' + uid] = null;
+    return db.ref().update(updates);
+  }
 
-  // 승인 대기자 목록(소유자 전용) 실시간 구독
+  // 승인 대기자 목록(소유자 전용) 실시간 구독 — 승인/거절된 사람 제외
   function watchPending(cb) {
     if (!DB.isAdmin) { cb([]); return function () {}; }
     const uref = db.ref('users');
     const handler = uref.on('value', function (snap) {
-      db.ref('approved').get().then(function (asnap) {
-        const approved = asnap.val() || {};
+      Promise.all([db.ref('approved').get(), db.ref('rejected').get()]).then(function (r) {
+        const approved = r[0].val() || {}, rejected = r[1].val() || {};
         const pending = [];
-        snap.forEach(function (c) { if (!approved[c.key]) pending.push(Object.assign({ uid: c.key }, c.val())); });
+        snap.forEach(function (c) { if (!approved[c.key] && !rejected[c.key]) pending.push(Object.assign({ uid: c.key }, c.val())); });
         cb(pending);
       }).catch(function () { cb([]); });
     });
     return function () { uref.off('value', handler); };
+  }
+
+  // 사용자가 보유한 종목 심볼을 /symbols 에 모음 → 크론이 시세를 받아간다.
+  function addSymbols(syms) {
+    if (!DB.me || !syms) return Promise.resolve();
+    const updates = {};
+    syms.filter(Boolean).forEach(function (s) {
+      const k = String(s).replace(/[.#$/\[\]=^]/g, '_');
+      updates['symbols/' + k] = s;
+    });
+    if (!Object.keys(updates).length) return Promise.resolve();
+    return db.ref().update(updates).catch(function () {});
   }
 
   function syncProfile(p) {

@@ -58,15 +58,14 @@ function buildPortfolio() {
   raw.forEach(s => {
     const q = s.y && LIVE[s.y];
     if (q && q.price) {
-      const k = s.usd ? fx : 1; // 원화로 보유 관리하는 미국 종목은 환율 적용
-      s.cur = q.price * k;
+      s.cur = q.price; // 현지 통화 그대로 (미국=USD, 한국=KRW)
       s.live = true;
       if (q.prevClose) s.day = (q.price - q.prevClose) / q.prevClose * 100;
     }
   });
   let total = 0, cost = 0, dayPnl = 0;
   raw.forEach(s => {
-    const m = s.ccy === '$' ? KRW : 1;
+    const m = s.ccy === '$' ? fx : 1; // 달러 종목은 라이브 환율로 원화 환산
     s.val = s.shares * s.cur * m;
     s.cost = s.shares * s.avg * m;
     s.pnl = s.val - s.cost;
@@ -258,21 +257,19 @@ function holdingRow(s, opts) {
 
 function holdingRowB(s, last) {
   return clk(() => push('stock', s.id),
-    { display: 'flex', flexDirection: 'column', gap: 11, padding: '14px 0', borderBottom: last ? 'none' : '1px solid ' + C.line },
-    row({ gap: 11 },
-      logo(s, 38),
-      col({ flex: 1, gap: 3, minWidth: 0 },
-        txt(s.name, { fontSize: 15, fontWeight: 700, color: C.t1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }),
-        row({ gap: 6 },
-          txt(s.shares + '주', { fontSize: 12, color: C.t3, fontWeight: 500 }),
-          txt('·', { fontSize: 11, color: C.t4 }),
-          txt('비중 ' + s.weight.toFixed(1) + '%', { fontSize: 12, color: C.t3, fontWeight: 500 }))),
-      col({ alignItems: 'flex-end', gap: 2, flex: 'none' },
-        txt(won(s.val, state.hide), { fontSize: 15, fontWeight: 800, color: C.t1, fontVariantNumeric: 'tabular-nums' }),
-        txt('평가액', { fontSize: 11, fontWeight: 600, color: C.t4 }))),
-    row({ gap: 8 },
-      valBlock('총수익', swon(s.pnl, state.hide), pct(s.ret), cc(s.ret)),
-      valBlock('일간수익', swon(s.dayPnl, state.hide), pct(s.day), cc(s.day))));
+    { display: 'flex', alignItems: 'center', gap: 12, padding: '13px 0', borderBottom: last ? 'none' : '1px solid ' + C.line },
+    logo(s, 40),
+    col({ flex: 1, gap: 3, minWidth: 0 },
+      txt(s.name, { fontSize: 15, fontWeight: 700, color: C.t1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }),
+      row({ gap: 6 },
+        txt(s.shares + '주', { fontSize: 12, color: C.t3, fontWeight: 500 }),
+        txt('·', { fontSize: 11, color: C.t4 }),
+        txt('비중 ' + s.weight.toFixed(1) + '%', { fontSize: 12, color: C.t3, fontWeight: 500 }))),
+    col({ alignItems: 'flex-end', gap: 3, flex: 'none' },
+      txt(won(s.val, state.hide), { fontSize: 15, fontWeight: 800, color: C.t1, fontVariantNumeric: 'tabular-nums' }),
+      row({ gap: 6, alignItems: 'baseline' },
+        txt(pct(s.ret), { fontSize: 13, fontWeight: 700, color: cc(s.ret), fontVariantNumeric: 'tabular-nums' }),
+        txt('오늘 ' + pct(s.day), { fontSize: 11.5, fontWeight: 600, color: cc(s.day), fontVariantNumeric: 'tabular-nums' }))));
 }
 
 /* ===================== Screens ===================== */
@@ -311,12 +308,12 @@ function homeB(port) {
       sectionTitle('자산 비중'),
       el('div', { style: { height: 14 } }),
       stackBar(segs, 12, 6),
-      col({ marginTop: 16, gap: 11 }, ...port.holdings.slice(0, 4).map(s =>
+      col({ marginTop: 16, gap: 11 }, ...port.holdings.map(s =>
         row({ justifyContent: 'space-between' },
-          row({ gap: 8 },
-            el('div', { style: { width: 9, height: 9, borderRadius: 3, background: s.color } }),
-            txt(s.name, { fontSize: 14, fontWeight: 600, color: C.t1 })),
-          txt(s.weight.toFixed(1) + '%', { fontSize: 14, fontWeight: 700, color: C.t2, fontVariantNumeric: 'tabular-nums' }))))),
+          row({ gap: 8, minWidth: 0 },
+            el('div', { style: { width: 9, height: 9, borderRadius: 3, background: s.color, flex: 'none' } }),
+            txt(s.name, { fontSize: 14, fontWeight: 600, color: C.t1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' })),
+          txt(s.weight.toFixed(1) + '%', { fontSize: 14, fontWeight: 700, color: C.t2, fontVariantNumeric: 'tabular-nums', flex: 'none' }))))),
     el('div', { style: { height: 8, background: C.bg, margin: '4px -20px 0' } }),
     clk(() => push('import'), { display: 'flex', alignItems: 'center', gap: 10, margin: '16px 0 0', padding: '13px 14px', borderRadius: 12, background: C.tint },
       icon('share', 18, C.brand, 1.8),
@@ -572,6 +569,7 @@ let OCR_STAGE = 'pick';   // pick | processing | review
 let OCR_DRAFTS = [];
 let OCR_MSG = '';
 let OCR_FILES = [];
+let OCR_PROGRESS = 0;     // 0~1 (인식 진행률)
 
 function fileToImage(file) {
   return new Promise((res, rej) => {
@@ -612,7 +610,7 @@ function preprocess(img) {
 }
 
 async function runOcrAndParse() {
-  OCR_STAGE = 'processing'; OCR_MSG = '준비 중…'; render();
+  OCR_STAGE = 'processing'; OCR_MSG = '준비 중…'; OCR_PROGRESS = 0; render();
   const merged = new Map(); // name → draft (중복 제거)
   try {
     for (let fi = 0; fi < OCR_FILES.length; fi++) {
@@ -622,6 +620,7 @@ async function runOcrAndParse() {
       const { data } = await Tesseract.recognize(canvas, 'kor+eng', {
         logger: (m) => {
           if (m.status === 'recognizing text') {
+            OCR_PROGRESS = (fi + m.progress) / OCR_FILES.length;
             OCR_MSG = `이미지 ${fi + 1}/${OCR_FILES.length} 인식 중 ${Math.round(m.progress * 100)}%`;
             if (OCR_STAGE === 'processing') render();
           }
@@ -635,6 +634,15 @@ async function runOcrAndParse() {
       }
     }
     OCR_DRAFTS = [...merged.values()];
+    // 미국 종목은 달러 평단가로 변환 (토스 평가뷰는 원화 → 현재 환율로 환산)
+    const fx = (LIVE['KRW=X'] && LIVE['KRW=X'].price) || 1380;
+    OCR_DRAFTS.forEach((d) => {
+      d.usd = !!(d.y && !/\.K[SQ]$/i.test(d.y));
+      if (d.usd && d.avg) {
+        d.avg = Math.round((d.avg / fx) * 100) / 100;
+        if (d.cur) d.cur = Math.round((d.cur / fx) * 100) / 100;
+      }
+    });
     if (!OCR_DRAFTS.length) {
       OCR_STAGE = 'pick';
       OCR_MSG = '종목을 찾지 못했어요. 토스증권 "평가" 탭(종목·평가액이 보이는 화면)을 캡처해 주세요.';
@@ -657,22 +665,32 @@ function applyDrafts() {
     return {
       id: 'u' + i, name: d.name, ticker: d.y || d.name, y: d.y || null,
       mkt: usd ? 'US' : 'KR', color: HOLDING_COLORS[i % HOLDING_COLORS.length],
-      shares: d.shares, avg: Math.round(d.avg), cur: Math.round(d.avg),
-      day: 0, ccy: '₩', usd,
+      shares: d.shares, avg: usd ? d.avg : Math.round(d.avg), cur: usd ? d.avg : Math.round(d.avg),
+      day: 0, ccy: usd ? '$' : '₩', usd,
     };
   });
   saveUserHoldings(holdings);
+  // 보유 종목 심볼을 등록 → 다음 시세 갱신부터 실시간 반영
+  if (window.DB && window.DB.addSymbols) window.DB.addSymbols(holdings.map((h) => h.y).filter(Boolean));
   OCR_STAGE = 'pick'; OCR_DRAFTS = []; OCR_FILES = [];
   goTab('assets');
-  loadPrices(); // 새 종목 실시간 시세 반영 시도
+  loadPrices(); // 기존에 받아둔 시세 즉시 반영
 }
 
 function importScreen() {
   if (OCR_STAGE === 'processing') {
-    return col({ height: '100%', justifyContent: 'center', alignItems: 'center', gap: 14, padding: 24 },
-      el('div', { class: 'spin', style: { width: 36, height: 36, border: '3px solid ' + C.line, borderTopColor: C.brand, borderRadius: 18 } }),
-      txt(OCR_MSG || '인식 중…', { fontSize: 14, fontWeight: 600, color: C.t2 }),
-      txt('사진은 기기 안에서만 분석돼요', { fontSize: 12, color: C.t4 }));
+    const pn = Math.round(OCR_PROGRESS * 100);
+    return col({ flex: 1, minHeight: 0, justifyContent: 'center', alignItems: 'center', padding: '0 36px' },
+      txt('종목을 읽고 있어요', { fontSize: 16, fontWeight: 800, color: C.t1 }),
+      el('div', { style: { height: 18 } }),
+      el('div', { style: { width: '100%', height: 8, borderRadius: 4, background: C.line, overflow: 'hidden' } },
+        el('div', { style: { width: pn + '%', height: '100%', background: C.brand, borderRadius: 4 } })),
+      el('div', { style: { height: 10 } }),
+      txt(pn + '%', { fontSize: 13, fontWeight: 700, color: C.brand, fontVariantNumeric: 'tabular-nums' }),
+      el('div', { style: { height: 6 } }),
+      txt(OCR_MSG || '준비 중…', { fontSize: 12, fontWeight: 500, color: C.t3 }),
+      el('div', { style: { height: 4 } }),
+      txt('🔒 사진은 기기 안에서만 분석돼요', { fontSize: 11.5, color: C.t4 }));
   }
   if (OCR_STAGE === 'review') return reviewScreen();
   return pickScreen();
@@ -685,7 +703,7 @@ function pickScreen() {
     if (OCR_FILES.length) runOcrAndParse();
   });
   const hasUser = !!loadUserHoldings();
-  return col({ padding: '8px 24px 28px', height: '100%' },
+  return col({ padding: '8px 24px max(28px, env(safe-area-inset-bottom))', flex: 1, minHeight: 0 },
     col({ flex: 1, justifyContent: 'center', alignItems: 'center', gap: 0 },
       row({ justifyContent: 'center', width: 64, height: 64, borderRadius: 20, background: C.tint, marginBottom: 18 }, icon('share', 30, C.brand, 1.8)),
       txt('스크린샷으로 가져오기', { fontSize: 19, fontWeight: 800, color: C.t1 }),
@@ -704,12 +722,12 @@ function pickScreen() {
 }
 
 function reviewScreen() {
-  return col({ height: '100%' },
+  return col({ flex: 1, minHeight: 0 },
     el('div', { style: { padding: '12px 20px', background: '#FFF7E6' } },
       txt('종목명·수량·평단가만 확인하고 잘못된 값은 고쳐주세요. 수익률·평가액은 실시간 시세로 자동 계산돼요.', { fontSize: 12.5, fontWeight: 500, color: '#9A6700', lineHeight: 1.4 })),
     el('div', { class: 'scrn', style: { flex: 1, padding: '12px 16px' } },
       ...OCR_DRAFTS.map((d, i) => draftCard(d, i))),
-    el('div', { style: { padding: '10px 16px', borderTop: '1px solid ' + C.line, display: 'flex', gap: 10 } },
+    el('div', { style: { padding: '10px 16px max(10px, env(safe-area-inset-bottom))', borderTop: '1px solid ' + C.line, display: 'flex', gap: 10 } },
       clk(() => { OCR_STAGE = 'pick'; render(); }, { flex: 1, display: 'flex', justifyContent: 'center', padding: '14px 0', borderRadius: 12, background: C.bg }, txt('다시 선택', { fontSize: 15, fontWeight: 700, color: C.t2 })),
       clk(applyDrafts, { flex: 2, display: 'flex', justifyContent: 'center', padding: '14px 0', borderRadius: 12, background: C.brand }, txt(OCR_DRAFTS.filter((d) => d.name && d.shares > 0 && d.avg > 0).length + '개 적용하기', { fontSize: 15, fontWeight: 700, color: '#fff' }))));
 }
@@ -738,8 +756,11 @@ function draftCard(d, i) {
     row({ gap: 8 },
       col({ flex: 1, gap: 3 }, txt('수량(주)', { fontSize: 11, fontWeight: 600, color: C.t3 }),
         numInput(d.shares, (v) => { d.shares = parseInt(v.replace(/[^\d]/g, ''), 10) || 0; })),
-      col({ flex: 1.4, gap: 3 }, txt('평단가(원)', { fontSize: 11, fontWeight: 600, color: C.t3 }),
-        numInput(d.avg, (v) => { d.avg = parseInt(v.replace(/[^\d]/g, ''), 10) || 0; }, { right: true }))));
+      col({ flex: 1.4, gap: 3 }, txt(d.usd ? '평단가($)' : '평단가(원)', { fontSize: 11, fontWeight: 600, color: C.t3 }),
+        numInput(d.avg, (v) => {
+          const cleaned = v.replace(/[^\d.]/g, '');
+          d.avg = d.usd ? (parseFloat(cleaned) || 0) : (parseInt(cleaned.replace(/\./g, ''), 10) || 0);
+        }, { right: true }))));
 }
 
 /* ===================== 커뮤니티(팔로우) ===================== */
@@ -918,8 +939,8 @@ function adminScreen() {
             return row({ gap: 12, padding: '12px 0', borderBottom: '1px solid ' + C.line },
               u.photo ? el('img', { src: u.photo, referrerpolicy: 'no-referrer', width: 42, height: 42, style: { width: 42, height: 42, borderRadius: 21, objectFit: 'cover', flex: 'none' } }) : avatar((u.name || 'U').slice(0, 2), C.t4, 42),
               col({ flex: 1, minWidth: 0 }, txt(u.name || '사용자', { fontSize: 15, fontWeight: 700, color: C.t1 })),
-              clk(function () { window.DB.rejectUser(u.uid); }, { padding: '8px 12px', borderRadius: 9, background: C.bg, flex: 'none' }, txt('거절', { fontSize: 13, fontWeight: 700, color: C.t3 })),
-              clk(function () { window.DB.approveUser(u.uid).then(function () { render(); }); }, { padding: '8px 16px', borderRadius: 9, background: C.brand, flex: 'none' }, txt('승인', { fontSize: 13, fontWeight: 700, color: '#fff' })));
+              clk(function () { window.DB.rejectUser(u.uid); ADMIN.pending = ADMIN.pending.filter(function (x) { return x.uid !== u.uid; }); render(); }, { padding: '8px 12px', borderRadius: 9, background: C.bg, flex: 'none' }, txt('거절', { fontSize: 13, fontWeight: 700, color: C.t3 })),
+              clk(function () { window.DB.approveUser(u.uid); ADMIN.pending = ADMIN.pending.filter(function (x) { return x.uid !== u.uid; }); render(); }, { padding: '8px 16px', borderRadius: 9, background: C.brand, flex: 'none' }, txt('승인', { fontSize: 13, fontWeight: 700, color: '#fff' })));
           }))
         : txt('대기 중인 사용자가 없어요.', { fontSize: 13, color: C.t3, marginTop: 8 })));
 }
@@ -961,7 +982,8 @@ function render() {
   } else {
     app.append(el('div', { class: 'scrn' }, body));
   }
-  app.append(tabBar());
+  // import는 자체 하단 버튼/뒤로가기가 있으므로 탭바 숨김
+  if (state.view !== 'import') app.append(tabBar());
 }
 
 // 인증 상태가 바뀌면 다시 그린다.

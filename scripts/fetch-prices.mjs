@@ -23,8 +23,25 @@ async function fetchQuote(symbol) {
   return { price, prevClose, currency: meta.currency || null };
 }
 
+const DB_URL = 'https://foliofriends-3770e-default-rtdb.firebaseio.com';
+
+// 사용자들이 보유 중인 종목 심볼을 RTDB(/symbols, 공개읽기)에서 모은다.
+async function dynamicSymbols() {
+  try {
+    const res = await fetch(`${DB_URL}/symbols.json`);
+    if (!res.ok) return [];
+    const obj = await res.json();
+    return obj ? Object.values(obj).filter((s) => typeof s === 'string') : [];
+  } catch (e) {
+    return [];
+  }
+}
+
 async function main() {
-  const symbols = JSON.parse(await readFile(symbolsUrl, 'utf8'));
+  const seed = JSON.parse(await readFile(symbolsUrl, 'utf8'));
+  const dyn = await dynamicSymbols();
+  const symbols = [...new Set([...seed, ...dyn, 'KRW=X'])];
+  console.log(`symbols: ${seed.length} seed + ${dyn.length} dynamic = ${symbols.length} total`);
   const out = {};
   const nowIso = new Date().toISOString();
   for (const sym of symbols) {
