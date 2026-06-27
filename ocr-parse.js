@@ -11,32 +11,47 @@
  * 수익률로 역산한다:  cost = 평가액 / (1 + 수익률/100),  평단가 = cost / 수량.
  */
 
-// 흔한 종목명 → 표준명/야후심볼 보정 (한글 OCR 깨짐 대응).
-const TICKER_MAP = [
-  [/하이닉스|sk하/i, { name: 'SK하이닉스', y: '000660.KS' }],
-  [/삼성전자/i, { name: '삼성전자', y: '005930.KS' }],
-  [/현대차|혀.?자|현대자/i, { name: '현대차', y: '005380.KS' }],
-  [/^nvda|nvidia/i, { name: 'NVIDIA', y: 'NVDA' }],
-  [/^tsla|tesla/i, { name: 'Tesla', y: 'TSLA' }],
-  [/^aapl|apple/i, { name: 'Apple', y: 'AAPL' }],
-  [/googl|구글/i, { name: 'Alphabet(GOOGL)', y: 'GOOGL' }],
-  [/kodex\s*200/i, { name: 'KODEX 200', y: '069500.KS' }],
-  [/반도체.*top\s*10|반도체.*10810|반도체.*0010/i, { name: 'TIGER 반도체TOP10', y: '396500.KS' }],
-  [/나스닥\s*100|미국나스닥/i, { name: 'ACE 미국나스닥100', y: '367380.KS' }],
-  [/s\s*&?\s*p\s*500|미국s.?p/i, { name: 'TIGER 미국S&P500', y: '360750.KS' }],
-  [/원자력/i, { name: 'HANARO 원자력iSelect', y: null }],
-  [/우주|항공우주/i, { name: 'TIGER 미국우주테크', y: null }],
-  [/mmf|종류형/i, { name: '삼성신종MMF', y: null }],
-];
+// ---- 종목 사전 퍼지 매칭 (OCR 깨진 이름 → 표준명/야후심볼 교정) ----
+function _norm(s) { return (s || '').toLowerCase().replace(/[^가-힣a-z0-9]/g, ''); }
+function _bigrams(s) {
+  const b = [];
+  if (s.length <= 1) return s ? [s] : [];
+  for (let i = 0; i < s.length - 1; i++) b.push(s.slice(i, i + 2));
+  return b;
+}
+// Dice 계수(바이그램) + 부분문자열 보너스
+function _sim(a, b) {
+  a = _norm(a); b = _norm(b);
+  if (!a || !b) return 0;
+  if (a === b) return 1;
+  if (a.length >= 2 && b.length >= 2 && (a.includes(b) || b.includes(a))) return 0.92;
+  const A = _bigrams(a), B = _bigrams(b);
+  if (!A.length || !B.length) return 0;
+  const cnt = {};
+  B.forEach((x) => { cnt[x] = (cnt[x] || 0) + 1; });
+  let inter = 0;
+  A.forEach((x) => { if (cnt[x] > 0) { inter++; cnt[x]--; } });
+  return (2 * inter) / (A.length + B.length);
+}
 
+// raw(OCR 종목명) → {name, y, matched, score}
 function normalizeName(raw) {
-  let name = (raw || '').replace(/\s+/g, ' ').trim();
-  for (const [re, info] of TICKER_MAP) {
-    if (re.test(name)) return { name: info.name, y: info.y, matched: true };
+  const cleaned = (raw || '').replace(/\s+/g, ' ').trim();
+  const dict = (typeof window !== 'undefined' && window.STOCKS) ? window.STOCKS : [];
+  let best = null, bestScore = 0;
+  for (const e of dict) {
+    const cands = [e.name].concat(e.aliases || []);
+    for (const c of cands) {
+      const sc = _sim(cleaned, c);
+      if (sc > bestScore) { bestScore = sc; best = e; }
+    }
   }
-  // 매칭 실패 시 OCR 원문을 그대로 두되 앞쪽 잡기호만 정리.
-  name = name.replace(/^[^A-Za-z가-힣]+/, '').trim();
-  return { name: name || raw, y: null, matched: false };
+  if (best && bestScore >= 0.45) {
+    return { name: best.name, y: best.y || null, matched: true, score: bestScore };
+  }
+  // 매칭 실패: OCR 원문 정리해서 그대로 (사용자가 검토화면에서 수정)
+  const fallback = cleaned.replace(/^[^A-Za-z가-힣]+/, '').trim();
+  return { name: fallback || cleaned, y: null, matched: false, score: bestScore };
 }
 
 function parseTossEval(text) {

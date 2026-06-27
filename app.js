@@ -375,10 +375,7 @@ function stockScreen(port) {
         txt(rw[1], { fontSize: 14.5, fontWeight: 700, color: C.t1, fontVariantNumeric: 'tabular-nums' }))),
       row({ justifyContent: 'space-between', padding: '12px 0 2px', marginTop: 6, borderTop: '2px solid ' + C.line },
         txt('평가 손익', { fontSize: 14, fontWeight: 700, color: C.t1 }),
-        txt(swon(s.pnl, state.hide) + ' (' + pct(s.ret) + ')', { fontSize: 15, fontWeight: 800, color: cc(s.ret), fontVariantNumeric: 'tabular-nums' }))),
-    row({ gap: 10, padding: '18px 20px 0' },
-      row({ justifyContent: 'center', flex: 1, padding: '14px 0', borderRadius: 12, background: C.bg }, txt('매도', { fontSize: 15, fontWeight: 700, color: C.down })),
-      row({ justifyContent: 'center', flex: 1, padding: '14px 0', borderRadius: 12, background: C.up }, txt('매수', { fontSize: 15, fontWeight: 700, color: '#fff' }))));
+        txt(swon(s.pnl, state.hide) + ' (' + pct(s.ret) + ')', { fontSize: 15, fontWeight: 800, color: cc(s.ret), fontVariantNumeric: 'tabular-nums' }))));
 }
 
 function feedScreen() {
@@ -426,7 +423,11 @@ function friendScreen() {
   const list = feedFriends();
   const f = list.find(x => x.id === state.param) || list[0];
   if (!f) return col({ padding: 40, alignItems: 'center' }, txt('포트폴리오를 불러올 수 없어요', { fontSize: 14, color: C.t3 }));
-  const mine = myHoldingNames();
+  const myPort = (function () { try { return buildPortfolio(); } catch (e) { return null; } })();
+  const myRet = myPort ? myPort.ret : 0;
+  const myByName = {};
+  if (myPort) myPort.holdings.forEach(function (h) { myByName[h.name] = { w: h.weight, r: h.ret }; });
+  const overlap = f.hold.filter(function (x) { return myByName[x.n]; }).length;
   const palette = ['#4C6EF5', '#15AABF', '#FAB005', '#9775FA', '#FF8787'];
   const segs = f.hold.map((x, idx) => ({ w: x.w, color: palette[idx % palette.length] }));
   return col({ padding: '4px 20px 28px' },
@@ -439,6 +440,12 @@ function friendScreen() {
       col({ alignItems: 'flex-end', gap: 1 },
         txt('수익률', { fontSize: 12, fontWeight: 600, color: C.t3 }),
         txt(pct(f.ret), { fontSize: 22, fontWeight: 800, color: cc(f.ret) }))),
+    col({ background: C.bg, borderRadius: 14, padding: '13px 16px', margin: '2px 0 6px' },
+      row({ justifyContent: 'space-between', alignItems: 'center' },
+        col({ gap: 2 }, txt('나', { fontSize: 12, fontWeight: 600, color: C.t3 }), txt(pct(myRet), { fontSize: 18, fontWeight: 800, color: cc(myRet) })),
+        txt('vs', { fontSize: 12, fontWeight: 700, color: C.t4 }),
+        col({ alignItems: 'flex-end', gap: 2 }, txt(f.name, { fontSize: 12, fontWeight: 600, color: C.t3 }), txt(pct(f.ret), { fontSize: 18, fontWeight: 800, color: cc(f.ret) }))),
+      overlap ? txt('겹치는 종목 ' + overlap + '개', { fontSize: 11.5, fontWeight: 600, color: C.t3, marginTop: 8 }) : null),
     row({ justifyContent: 'center', margin: '14px 0 22px' },
       donut(segs, 160, 24, col({ alignItems: 'center', gap: 1 },
         txt(String(f.hold.length), { fontSize: 26, fontWeight: 800, color: C.t1 }),
@@ -449,7 +456,7 @@ function friendScreen() {
       col({ flex: 1, gap: 5, minWidth: 0 },
         row({ gap: 7 },
           txt(x.n, { fontSize: 15, fontWeight: 700, color: C.t1 }),
-          mine.has(x.n) ? row({ background: C.tint, padding: '2px 7px', borderRadius: 6 }, txt('나도 보유', { fontSize: 10.5, fontWeight: 700, color: C.brand })) : null),
+          myByName[x.n] ? row({ background: C.tint, padding: '2px 7px', borderRadius: 6 }, txt('나 ' + Math.round(myByName[x.n].w) + '%', { fontSize: 10.5, fontWeight: 700, color: C.brand })) : null),
         el('div', { style: { height: 6, borderRadius: 3, background: C.line, overflow: 'hidden' } },
           el('div', { style: { width: x.w + '%', height: '100%', background: segs[k].color, borderRadius: 3 } }))),
       col({ alignItems: 'flex-end', gap: 3, flex: 'none' },
@@ -575,18 +582,29 @@ function fileToImage(file) {
   });
 }
 
-// 전처리: 확대 + 그레이스케일 + 대비 강화 (Tesseract 정확도 향상)
+// 전처리: 확대 + 그레이스케일 + 다크모드 자동반전 + 대비 강화 (Tesseract 정확도 향상)
 function preprocess(img) {
-  const scale = Math.min(2.5, Math.max(1, 1080 / img.width));
+  const scale = Math.min(3, Math.max(1.5, 1280 / img.width));
   const w = Math.round(img.width * scale), h = Math.round(img.height * scale);
   const c = document.createElement('canvas');
   c.width = w; c.height = h;
   const ctx = c.getContext('2d');
   ctx.drawImage(img, 0, 0, w, h);
   const id = ctx.getImageData(0, 0, w, h), d = id.data;
+  // 1) 그레이스케일 + 평균 밝기
+  let sum = 0;
   for (let i = 0; i < d.length; i += 4) {
-    let g = 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2];
-    g = (g - 128) * 1.25 + 128;
+    const g = 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2];
+    d[i] = d[i + 1] = d[i + 2] = g;
+    sum += g;
+  }
+  const mean = sum / (d.length / 4);
+  const dark = mean < 110; // 다크모드(검은 배경) 화면 감지
+  // 2) 다크면 반전(검은 글자/흰 배경) + 대비 강화 → Tesseract가 잘 읽음
+  for (let i = 0; i < d.length; i += 4) {
+    let g = d[i];
+    if (dark) g = 255 - g;
+    g = (g - 128) * 1.35 + 128;
     d[i] = d[i + 1] = d[i + 2] = g < 0 ? 0 : g > 255 ? 255 : g;
   }
   ctx.putImageData(id, 0, 0);

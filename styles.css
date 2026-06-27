@@ -8,23 +8,24 @@ html, body {
   color: #191F28;
 }
 
-/* 모바일 폭으로 가운데 정렬된 앱 프레임 */
+/* 모바일: 화면 전체를 꽉 채움(회색 여백 없음) */
 #app {
   position: relative;
   display: flex;
   flex-direction: column;
   width: 100%;
-  max-width: 430px;
   height: 100dvh;
   margin: 0 auto;
   background: #FFFFFF;
   overflow: hidden;
 }
 
-@media (min-width: 460px) {
+/* 데스크톱(넓은 화면)에서만 가운데 정렬된 폰 카드로 표시 */
+@media (min-width: 600px) {
   #app {
-    height: min(900px, 100dvh);
-    margin-top: max(0px, calc((100dvh - 900px) / 2));
+    max-width: 430px;
+    height: min(920px, 100dvh);
+    margin-top: max(0px, calc((100dvh - 920px) / 2));
     border-radius: 28px;
     box-shadow: 0 24px 60px -20px rgba(0, 0, 0, 0.35);
   }
