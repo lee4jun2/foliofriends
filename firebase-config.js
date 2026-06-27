@@ -1,12 +1,15 @@
 /*
  * Firebase 웹 설정.
  *
- * 이 값들은 비밀이 아니므로 깃에 커밋해도 안전합니다.
- * (보안은 Firebase 규칙 + 승인된 도메인으로 처리됩니다.)
+ * ⚠️ 실제 값은 소스에 두지 않습니다.
+ * 배포 시 GitHub Actions가 GitHub Secrets에서 이 파일을 생성합니다
+ * (.github/workflows/deploy.yml 참고).
  *
- * 값 얻는 곳:
- *   console.firebase.google.com → 프로젝트 → ⚙ 프로젝트 설정
- *   → "내 앱"에서 웹 앱(</>) → SDK 설정 및 구성 → "구성"
+ * 이 플레이스홀더 상태에서는 로그인 없이 "데모 모드"로 동작하므로
+ * 로컬 개발(예: python3 -m http.server) 시 그대로 미리볼 수 있습니다.
+ *
+ * 로컬에서 실제 로그인을 테스트하려면 이 값들을 본인 Firebase 값으로
+ * 잠시 바꾸되, 커밋하지 마세요.
  */
 window.FIREBASE_CONFIG = {
   apiKey: 'YOUR_API_KEY',
