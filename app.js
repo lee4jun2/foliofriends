@@ -621,7 +621,7 @@ function applyDrafts() {
     return {
       id: 'u' + i, name: d.name, ticker: d.y || d.name, y: d.y || null,
       mkt: usd ? 'US' : 'KR', color: HOLDING_COLORS[i % HOLDING_COLORS.length],
-      shares: d.shares, avg: Math.round(d.avg), cur: Math.round(d.cur || d.avg),
+      shares: d.shares, avg: Math.round(d.avg), cur: Math.round(d.avg),
       day: 0, ccy: '₩', usd,
     };
   });
@@ -670,7 +670,7 @@ function pickScreen() {
 function reviewScreen() {
   return col({ height: '100%' },
     el('div', { style: { padding: '12px 20px', background: '#FFF7E6' } },
-      txt('인식 결과예요. 잘못된 값은 직접 고쳐주세요. 평단가는 평가액·수익률로 자동 계산됩니다.', { fontSize: 12.5, fontWeight: 500, color: '#9A6700', lineHeight: 1.4 })),
+      txt('종목명·수량·평단가만 확인하고 잘못된 값은 고쳐주세요. 수익률·평가액은 실시간 시세로 자동 계산돼요.', { fontSize: 12.5, fontWeight: 500, color: '#9A6700', lineHeight: 1.4 })),
     el('div', { class: 'scrn', style: { flex: 1, padding: '12px 16px' } },
       ...OCR_DRAFTS.map((d, i) => draftCard(d, i))),
     el('div', { style: { padding: '10px 16px', borderTop: '1px solid ' + C.line, display: 'flex', gap: 10 } },
@@ -688,14 +688,6 @@ function numInput(value, onChange, opts) {
 }
 
 function draftCard(d, i) {
-  const recalc = () => {
-    if (d.eval != null && d.retPct != null && d.shares) {
-      const cost = Math.round(d.eval / (1 + d.retPct / 100));
-      d.avg = Math.round(cost / d.shares);
-      d.cur = Math.round(d.eval / d.shares);
-    }
-    render();
-  };
   const nameInp = el('input', {
     type: 'text', value: d.name || '',
     style: { flex: 1, border: 'none', fontSize: 15, fontWeight: 700, color: C.t1, fontFamily: 'inherit', outline: 'none', background: 'transparent', minWidth: 0 },
@@ -709,13 +701,9 @@ function draftCard(d, i) {
       clk(() => { OCR_DRAFTS.splice(i, 1); render(); }, { padding: 4, flex: 'none' }, txt('✕', { fontSize: 14, color: C.t4 }))),
     row({ gap: 8 },
       col({ flex: 1, gap: 3 }, txt('수량(주)', { fontSize: 11, fontWeight: 600, color: C.t3 }),
-        numInput(d.shares, (v) => { d.shares = parseInt(v.replace(/[^\d]/g, ''), 10) || 0; recalc(); })),
-      col({ flex: 1.4, gap: 3 }, txt('평가액(원)', { fontSize: 11, fontWeight: 600, color: C.t3 }),
-        numInput(d.eval, (v) => { d.eval = parseInt(v.replace(/[^\d]/g, ''), 10) || 0; recalc(); }, { right: true })),
-      col({ flex: 1, gap: 3 }, txt('수익률(%)', { fontSize: 11, fontWeight: 600, color: C.t3 }),
-        numInput(d.retPct, (v) => { d.retPct = parseFloat(v.replace(/[^\d.\-]/g, '')) || 0; recalc(); }, { right: true }))),
-    row({ gap: 6, justifyContent: 'flex-end' },
-      txt('평단가 ' + (d.avg != null ? d.avg.toLocaleString('ko-KR') + '원' : '?'), { fontSize: 12, fontWeight: 600, color: C.t2 })));
+        numInput(d.shares, (v) => { d.shares = parseInt(v.replace(/[^\d]/g, ''), 10) || 0; })),
+      col({ flex: 1.4, gap: 3 }, txt('평단가(원)', { fontSize: 11, fontWeight: 600, color: C.t3 }),
+        numInput(d.avg, (v) => { d.avg = parseInt(v.replace(/[^\d]/g, ''), 10) || 0; }, { right: true }))));
 }
 
 /* ===================== 커뮤니티(팔로우) ===================== */
@@ -855,12 +843,10 @@ function onboardingScreen() {
     el('div', { style: { height: 8 } }),
     txt('🔒 사진은 기기 안에서만 분석돼요', { fontSize: 12, fontWeight: 500, color: C.t4 }),
     el('div', { style: { height: 32 } }),
-    clk(function () { OCR_STAGE = 'pick'; push('import'); }, { width: '100%', display: 'flex', justifyContent: 'center', padding: '15px 0', borderRadius: 12, background: C.brand }, txt('스크린샷으로 시작하기', { fontSize: 15, fontWeight: 700, color: '#fff' })),
-    el('div', { style: { height: 10 } }),
-    clk(function () { ONBOARD_SKIP = true; render(); }, { padding: '10px' }, txt('나중에 할게요', { fontSize: 14, fontWeight: 600, color: C.t3 })));
+    clk(function () { OCR_STAGE = 'pick'; push('import'); }, { width: '100%', display: 'flex', justifyContent: 'center', padding: '15px 0', borderRadius: 12, background: C.brand }, txt('스크린샷으로 시작하기', { fontSize: 15, fontWeight: 700, color: '#fff' })));
 }
-let ONBOARD_SKIP = false;
-function needsOnboarding() { return useCommunity() && !loadUserHoldings() && !ONBOARD_SKIP; }
+// 보유내역이 없으면 반드시 온보딩(스크린샷 가져오기)부터 — 건너뛰기 없음
+function needsOnboarding() { return useCommunity() && !loadUserHoldings(); }
 
 /* ----- 가입 승인 (소유자 전용) ----- */
 let ADMIN = { pending: [] };
