@@ -673,7 +673,7 @@ async function runOcrAndParse() {
     OCR_DRAFTS = mergeViews(sharesList, priceList);
     if (!OCR_DRAFTS.length) {
       OCR_STAGE = 'pick';
-      OCR_MSG = '종목을 찾지 못했어요. 토스 "평가"(주식 수)·"시세"(평단가) 화면을 캡처해 주세요.';
+      OCR_MSG = '종목을 찾지 못했어요. 도미노 "평가"(주식 수)·"시세"(평단가) 화면을 캡처해 주세요.';
       render();
       return;
     }
@@ -780,10 +780,10 @@ function pickScreen() {
       col({ alignItems: 'center', gap: 0, marginBottom: 6 },
         txt('스크린샷으로 가져오기', { fontSize: 19, fontWeight: 800, color: C.t1 }),
         el('div', { style: { height: 8 } }),
-        txt('토스증권 앱의 두 탭을 각각', { fontSize: 13, fontWeight: 500, color: C.t3, textAlign: 'center' }),
+        txt('도미노 앱의 두 탭을 각각', { fontSize: 13, fontWeight: 500, color: C.t3, textAlign: 'center' }),
         txt('전체 화면 캡처해 올려주세요', { fontSize: 13, fontWeight: 500, color: C.t3, textAlign: 'center' })),
-      uploadSlot('1', '① 주식 수 화면', '토스 "평가" 탭 전체 스크린샷', './assets/ex-shares.jpg', OCR_FILE_SHARES, (f) => { OCR_FILE_SHARES = f; }),
-      uploadSlot('2', '② 평단가 화면', '토스 "시세" 탭 전체 스크린샷', './assets/ex-price.jpg', OCR_FILE_PRICE, (f) => { OCR_FILE_PRICE = f; }),
+      uploadSlot('1', '① 주식 수 화면', '도미노 "평가" 탭 전체 스크린샷', './assets/ex-shares.jpg', OCR_FILE_SHARES, (f) => { OCR_FILE_SHARES = f; }),
+      uploadSlot('2', '② 평단가 화면', '도미노 "시세" 탭 전체 스크린샷', './assets/ex-price.jpg', OCR_FILE_PRICE, (f) => { OCR_FILE_PRICE = f; }),
       txt('💡 종목이 다 보이게 화면 전체를 캡처하세요', { fontSize: 11.5, fontWeight: 600, color: C.t3, textAlign: 'center', marginTop: 2 }),
       txt('🔒 사진은 서버 전송 없이 기기 안에서만 분석돼요', { fontSize: 11.5, fontWeight: 500, color: C.t4, textAlign: 'center' }),
       OCR_MSG ? el('div', { style: { textAlign: 'center' } }, txt(OCR_MSG, { fontSize: 12.5, fontWeight: 600, color: C.up })) : null),
