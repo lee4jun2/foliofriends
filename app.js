@@ -495,7 +495,15 @@ function friendScreen() {
           el('div', { style: { width: x.w + '%', height: '100%', background: segs[k].color, borderRadius: 3 } }))),
       col({ alignItems: 'flex-end', gap: 3, flex: 'none' },
         txt(x.w + '%', { fontSize: 15, fontWeight: 800, color: C.t1, fontVariantNumeric: 'tabular-nums' }),
-        txt(pct(x.r), { fontSize: 12.5, fontWeight: 600, color: cc(x.r) }))))));
+        txt(pct(x.r), { fontSize: 12.5, fontWeight: 600, color: cc(x.r) }))))),
+    (useCommunity() && window.DB && window.DB.enabled)
+      ? clk(function () {
+          if (confirm(f.name + '님과 친구를 끊을까요? (상대도 함께 해제돼요)')) {
+            window.DB.unfriend(f.id).then(function () { back(); });
+          }
+        }, { display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 6, marginTop: 22, padding: '13px 0', borderRadius: 12, border: '1px solid ' + C.line, background: C.card },
+        txt('친구 끊기', { fontSize: 14, fontWeight: 700, color: C.down }))
+      : null);
 }
 
 // 종목명 → 야후 심볼 (사전 매칭)
@@ -744,8 +752,7 @@ const HOLDING_COLORS = ['#4C6EF5', '#15AABF', '#FF8787', '#20C997', '#FAB005', '
 let OCR_STAGE = 'pick';   // pick | processing | review
 let OCR_DRAFTS = [];
 let OCR_MSG = '';
-let OCR_FILE_SHARES = null; // ① 주식 수 화면(평가 탭)
-let OCR_FILE_PRICE = null;  // ② 평단가 화면(시세 탭)
+let OCR_FILES = [];       // 업로드한 스크린샷들(여러 장, 앱 종류 무관)
 let OCR_PROGRESS = 0;     // 0~1 (인식 진행률)
 let OCR_RAW = '';         // 디버그: 마지막 원시 OCR 텍스트
 
@@ -806,22 +813,43 @@ async function ocrText(file, label, idx, total) {
 
 async function runOcrAndParse() {
   OCR_STAGE = 'processing'; OCR_MSG = '준비 중…'; OCR_PROGRESS = 0; render();
+  const files = OCR_FILES.slice();
+  if (!files.length) { OCR_STAGE = 'pick'; OCR_MSG = '스크린샷을 한 장 이상 올려주세요.'; render(); return; }
+
+  // 1) Gemini 비전 우선 (여러 장을 한 번에 이해해 병합) — 키가 있을 때만
+  if (window.visionAvailable && window.visionAvailable()) {
+    try {
+      OCR_PROGRESS = 0.3; render();
+      const drafts = await window.visionExtract(files, (m) => {
+        OCR_MSG = m; OCR_PROGRESS = Math.min(0.9, (OCR_PROGRESS || 0.3) + 0.15);
+        if (OCR_STAGE === 'processing') render();
+      });
+      if (drafts && drafts.length) { OCR_DRAFTS = drafts; OCR_STAGE = 'review'; OCR_MSG = ''; render(); return; }
+      // 결과가 비면 수동 입력 카드로
+      OCR_DRAFTS = [{ name: '', y: null, usd: false, shares: 0, avg: 0 }];
+      OCR_STAGE = 'review'; OCR_MSG = ''; render(); return;
+    } catch (e) {
+      // 과금 방지: 한도 초과/폭주면 더 호출하지 않고 멈춘다.
+      if (e && (e.code === 'DAILY_CAP' || e.code === 'TOO_FAST')) {
+        OCR_STAGE = 'pick'; OCR_MSG = e.message; render(); return;
+      }
+      // 그 외 오류 → 무료 로컬 OCR로 자동 대체
+      OCR_MSG = 'AI 분석에 실패해 기본 인식으로 시도해요…'; render();
+    }
+  }
+
+  // 2) Tesseract 폴백 (무료·기기 내 처리). 각 이미지를 두 파서로 시도해 병합.
   try {
-    const jobs = [];
-    if (OCR_FILE_SHARES) jobs.push('shares');
-    if (OCR_FILE_PRICE) jobs.push('price');
     let sharesList = [], priceList = [];
-    for (let i = 0; i < jobs.length; i++) {
-      if (jobs[i] === 'shares') sharesList = window.parseSharesView(await ocrText(OCR_FILE_SHARES, '주식 수', i, jobs.length));
-      else priceList = window.parsePriceView(await ocrText(OCR_FILE_PRICE, '평단가', i, jobs.length));
+    for (let i = 0; i < files.length; i++) {
+      const text = await ocrText(files[i], '스크린샷 ' + (i + 1), i, files.length);
+      const sv = window.parseSharesView(text);
+      const pv = window.parsePriceView(text);
+      if (sv.length >= pv.length) sharesList = sharesList.concat(sv);
+      else priceList = priceList.concat(pv);
     }
     OCR_DRAFTS = mergeViews(sharesList, priceList);
-    if (!OCR_DRAFTS.length) {
-      OCR_STAGE = 'pick';
-      OCR_MSG = '종목을 찾지 못했어요. 도미노 "평가"(주식 수)·"시세"(평단가) 화면을 캡처해 주세요.';
-      render();
-      return;
-    }
+    if (!OCR_DRAFTS.length) OCR_DRAFTS = [{ name: '', y: null, usd: false, shares: 0, avg: 0 }];
     OCR_STAGE = 'review'; OCR_MSG = ''; render();
   } catch (e) {
     OCR_STAGE = 'pick';
@@ -876,7 +904,7 @@ function applyDrafts() {
   saveUserHoldings(holdings);
   // 보유 종목 심볼을 등록 → 다음 시세 갱신부터 실시간 반영
   if (window.DB && window.DB.addSymbols) window.DB.addSymbols(holdings.map((h) => h.y).filter(Boolean));
-  OCR_STAGE = 'pick'; OCR_DRAFTS = []; OCR_FILE_SHARES = null; OCR_FILE_PRICE = null;
+  OCR_STAGE = 'pick'; OCR_DRAFTS = []; OCR_FILES = [];
   goTab('assets');
   loadPrices(); // 기존에 받아둔 시세 즉시 반영
 }
@@ -886,7 +914,7 @@ function editHoldings() {
   const h = loadUserHoldings() || [];
   OCR_DRAFTS = h.map((x) => ({ name: x.name, y: x.y || null, usd: !!x.usd, shares: x.shares, avg: x.avg }));
   if (!OCR_DRAFTS.length) OCR_DRAFTS = [{ name: '', y: null, usd: false, shares: 0, avg: 0 }];
-  OCR_STAGE = 'review'; OCR_FILE_SHARES = null; OCR_FILE_PRICE = null;
+  OCR_STAGE = 'review'; OCR_FILES = [];
   push('import');
 }
 function addBlankDraft() { OCR_DRAFTS.push({ name: '', y: null, usd: false, shares: 0, avg: 0 }); render(); }
@@ -910,40 +938,49 @@ function importScreen() {
   return pickScreen();
 }
 
-function uploadSlot(num, title, sub, exampleSrc, file, onPick) {
-  const input = el('input', { type: 'file', accept: 'image/*', style: { display: 'none' } });
-  input.addEventListener('change', (e) => { if (e.target.files[0]) { onPick(e.target.files[0]); render(); } });
-  const done = !!file;
-  return clk(() => input.click(),
-    { display: 'flex', alignItems: 'center', gap: 12, padding: '12px 14px', borderRadius: 14, border: '1.5px solid ' + (done ? C.brand : C.line), background: done ? C.tint : C.card },
-    el('div', { style: { position: 'relative', flex: 'none' } },
-      el('img', { src: exampleSrc, width: 48, height: 62, style: { width: 48, height: 62, borderRadius: 8, objectFit: 'cover', border: '1px solid ' + C.line, display: 'block' } }),
-      el('div', { style: { position: 'absolute', top: 3, left: 3, width: 18, height: 18, borderRadius: 9, background: done ? C.brand : 'rgba(0,0,0,0.55)', display: 'flex', alignItems: 'center', justifyContent: 'center' } },
-        txt(done ? '✓' : num, { fontSize: 11, fontWeight: 800, color: '#fff' }))),
-    col({ flex: 1, gap: 2, minWidth: 0 },
-      txt(title, { fontSize: 14.5, fontWeight: 700, color: C.t1 }),
-      txt(done ? '선택됨 · 다시 누르면 변경' : sub, { fontSize: 12, fontWeight: 500, color: done ? C.brand : C.t3 }),
-      txt(done ? '' : '예시처럼 보이는 화면', { fontSize: 11, fontWeight: 500, color: C.t4 })),
-    icon('chev', 18, C.t4, 2), input);
+function ocrThumb(file, i) {
+  const url = URL.createObjectURL(file);
+  return el('div', { style: { position: 'relative', width: 64, height: 82, flex: 'none' } },
+    el('img', { src: url, style: { width: 64, height: 82, objectFit: 'cover', borderRadius: 10, border: '1px solid ' + C.line, display: 'block' } }),
+    clk(() => { OCR_FILES.splice(i, 1); render(); },
+      { position: 'absolute', top: -7, right: -7, width: 22, height: 22, borderRadius: 11, background: 'rgba(0,0,0,0.72)', display: 'flex', alignItems: 'center', justifyContent: 'center' },
+      txt('×', { fontSize: 15, fontWeight: 700, color: '#fff', lineHeight: 1 })));
+}
+
+function multiUpload() {
+  const input = el('input', { type: 'file', accept: 'image/*', multiple: true, style: { display: 'none' } });
+  input.addEventListener('change', (e) => {
+    const fs = Array.from(e.target.files || []);
+    if (fs.length) { OCR_FILES = OCR_FILES.concat(fs); render(); }
+    e.target.value = '';
+  });
+  return col({ gap: 12 },
+    clk(() => input.click(),
+      { display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 8, padding: '26px 16px', borderRadius: 16, border: '1.5px dashed ' + (OCR_FILES.length ? C.brand : C.line), background: OCR_FILES.length ? C.tint : C.card },
+      el('div', { style: { width: 46, height: 46, borderRadius: 23, background: OCR_FILES.length ? '#fff' : C.tint, display: 'flex', alignItems: 'center', justifyContent: 'center' } }, txt('🖼️', { fontSize: 22 })),
+      txt(OCR_FILES.length ? '사진 더 추가하기' : '스크린샷 올리기', { fontSize: 15, fontWeight: 700, color: C.t1 }),
+      txt('여러 장 한 번에 선택할 수 있어요', { fontSize: 12, fontWeight: 500, color: C.t3 }),
+      input),
+    OCR_FILES.length ? row({ gap: 10, flexWrap: 'wrap', justifyContent: 'center' }, ...OCR_FILES.map((f, i) => ocrThumb(f, i))) : null);
 }
 
 function pickScreen() {
   const hasUser = !!loadUserHoldings();
-  const canAnalyze = !!(OCR_FILE_SHARES || OCR_FILE_PRICE);
+  const canAnalyze = OCR_FILES.length > 0;
+  const ai = !!(window.visionAvailable && window.visionAvailable());
   return col({ padding: '8px 20px max(20px, env(safe-area-inset-bottom))', flex: 1, minHeight: 0 },
-    col({ flex: 1, justifyContent: 'center', gap: 12 },
-      col({ alignItems: 'center', gap: 0, marginBottom: 6 },
+    col({ flex: 1, justifyContent: 'center', gap: 14 },
+      col({ alignItems: 'center', gap: 7, marginBottom: 2 },
         txt('스크린샷으로 가져오기', { fontSize: 19, fontWeight: 800, color: C.t1 }),
-        el('div', { style: { height: 8 } }),
-        txt('도미노 앱의 두 탭을 각각', { fontSize: 13, fontWeight: 500, color: C.t3, textAlign: 'center' }),
-        txt('전체 화면 캡처해 올려주세요', { fontSize: 13, fontWeight: 500, color: C.t3, textAlign: 'center' })),
-      uploadSlot('1', '① 주식 수 화면', '도미노 "평가" 탭 전체 스크린샷', './assets/ex-shares.jpg', OCR_FILE_SHARES, (f) => { OCR_FILE_SHARES = f; }),
-      uploadSlot('2', '② 평단가 화면', '도미노 "시세" 탭 전체 스크린샷', './assets/ex-price.jpg', OCR_FILE_PRICE, (f) => { OCR_FILE_PRICE = f; }),
-      txt('💡 종목이 다 보이게 화면 전체를 캡처하세요', { fontSize: 11.5, fontWeight: 600, color: C.t3, textAlign: 'center', marginTop: 2 }),
-      txt('🔒 사진은 서버 전송 없이 기기 안에서만 분석돼요', { fontSize: 11.5, fontWeight: 500, color: C.t4, textAlign: 'center' }),
+        txt(ai ? 'AI가 화면을 읽고 종목·수량·평단가를 알아서 채워줘요' : '보유 종목이 보이는 화면을 캡처해 올려주세요',
+          { fontSize: 13, fontWeight: 500, color: C.t3, textAlign: 'center', lineHeight: 1.45 })),
+      multiUpload(),
+      txt('💡 종목·수량·평단가가 잘 보이게 캡처하면 더 정확해요', { fontSize: 11.5, fontWeight: 600, color: C.t3, textAlign: 'center' }),
+      txt(ai ? '🔒 분석을 위해 구글 AI로 전송돼요 · 사진은 저장하지 않아요' : '🔒 사진은 서버 전송 없이 기기 안에서만 분석돼요',
+        { fontSize: 11.5, fontWeight: 500, color: C.t4, textAlign: 'center' }),
       OCR_MSG ? el('div', { style: { textAlign: 'center' } }, txt(OCR_MSG, { fontSize: 12.5, fontWeight: 600, color: C.up })) : null),
     clk(() => { if (canAnalyze) runOcrAndParse(); }, { display: 'flex', justifyContent: 'center', alignItems: 'center', padding: '15px 0', borderRadius: 12, background: canAnalyze ? C.brand : C.line },
-      txt('분석하기', { fontSize: 15, fontWeight: 700, color: canAnalyze ? '#fff' : C.t4 })),
+      txt(ai ? 'AI로 분석하기' : '분석하기', { fontSize: 15, fontWeight: 700, color: canAnalyze ? '#fff' : C.t4 })),
     hasUser ? clk(() => { if (confirm('가져온 종목을 지우고 데모로 되돌릴까요?')) { clearUserHoldings(); goTab('assets'); loadPrices(); } },
       { display: 'flex', justifyContent: 'center', padding: '12px 0', marginTop: 4 },
       txt('데모 데이터로 초기화', { fontSize: 13, fontWeight: 600, color: C.t3 })) : null);

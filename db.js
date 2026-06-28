@@ -26,7 +26,7 @@
     isAdmin: false, approved: false, approvedReady: false, profileName: null,
     syncProfile, setNickname, saveHoldings, loadHoldings, saveShared, getShared,
     createInvite, getInvite, acceptInvite, watchFriends, unfriend, getUser,
-    approveUser, rejectUser, watchPending, addSymbols,
+    approveUser, rejectUser, watchPending, addSymbols, reserveGeminiCall,
   };
   window.DB = DB;
 
@@ -119,6 +119,25 @@
     });
     if (!Object.keys(updates).length) return Promise.resolve();
     return db.ref().update(updates).catch(function () {});
+  }
+
+  // Gemini 호출 전 전역(전체 유저 합산) 일일 카운터를 원자적으로 예약한다.
+  // 과금 방지: cap 도달 시 트랜잭션이 abort → { ok:false }. 권한/네트워크 실패 시
+  // { ok:true, global:false }로 두어 클라이언트의 유저당 로컬 캡에 위임한다.
+  function reserveGeminiCall(cap) {
+    if (!DB.me || !db) return Promise.resolve({ ok: true, count: 0, global: false });
+    const d = new Date();
+    const date = d.getFullYear() + '-' + (d.getMonth() + 1) + '-' + d.getDate();
+    const ref = db.ref('usage/gemini/' + date);
+    return ref.transaction(function (c) {
+      c = c || 0;
+      if (c >= cap) return; // abort → 한도 초과
+      return c + 1;
+    }).then(function (res) {
+      return { ok: !!res.committed, count: (res.snapshot && res.snapshot.val()) || 0, global: true };
+    }).catch(function () {
+      return { ok: true, count: 0, global: false };
+    });
   }
 
   function syncProfile(p) {

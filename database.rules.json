@@ -22,6 +22,16 @@
       }
     },
 
+    "usage": {
+      "gemini": {
+        ".read": "auth != null",
+        "$date": {
+          ".write": "auth != null && (root.child('approved/' + auth.uid).val() === true || auth.token.email === 'leejunhyuk0205@gmail.com')",
+          ".validate": "newData.isNumber() && newData.val() >= 0"
+        }
+      }
+    },
+
     "symbols": {
       ".read": true,
       "$k": {

@@ -50,6 +50,7 @@ jobs:
             measurementId: '${{ secrets.FIREBASE_MEASUREMENT_ID }}',
             telegramBotToken: '${{ secrets.TELEGRAM_BOT_TOKEN }}',
             telegramChatId: '${{ secrets.TELEGRAM_CHAT_ID }}',
+            geminiApiKey: '${{ secrets.GEMINI_API_KEY }}',
           };
           EOF
 
