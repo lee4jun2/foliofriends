@@ -27,6 +27,7 @@
     syncProfile, setNickname, saveHoldings, loadHoldings, saveShared, getShared,
     createInvite, getInvite, acceptInvite, watchFriends, unfriend, getUser,
     approveUser, rejectUser, watchPending, addSymbols, reserveGeminiCall,
+    savePushToken, getPushToken,
   };
   window.DB = DB;
 
@@ -138,6 +139,16 @@
     }).catch(function () {
       return { ok: true, count: 0, global: false };
     });
+  }
+
+  // 웹 푸시(FCM) 토큰 저장/조회. 알림 발송 대상의 토큰을 친구/소유자가 읽을 수 있게(규칙).
+  function savePushToken(token) {
+    if (!DB.me || !token) return Promise.resolve();
+    return db.ref('pushTokens/' + DB.me).set({ token: token, updatedAt: firebase.database.ServerValue.TIMESTAMP });
+  }
+  function getPushToken(uid) {
+    if (!uid) return Promise.resolve(null);
+    return db.ref('pushTokens/' + uid).get().then(function (s) { return s.exists() ? (s.val().token || null) : null; }).catch(function () { return null; });
   }
 
   function syncProfile(p) {

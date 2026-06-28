@@ -1,0 +1,11 @@
+name = "foliofriends-push"
+main = "push-worker.js"
+compatibility_date = "2024-11-01"
+
+# 배포:
+#   1) npm i -g wrangler && wrangler login
+#   2) wrangler secret put SERVICE_ACCOUNT   (Firebase 서비스계정 JSON 붙여넣기)
+#   3) wrangler secret put FIREBASE_API_KEY  (Firebase 웹 API 키)
+#   4) wrangler deploy
+# 배포 후 나오는 URL(https://foliofriends-push.<계정>.workers.dev)을
+#   GitHub Secret PUSH_WORKER_URL 로 등록 → 앱이 그 주소로 발송 요청.

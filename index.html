@@ -25,6 +25,7 @@
   <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-auth-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-database-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-messaging-compat.js"></script>
 
   <!-- PWA: 서비스워커 등록 + 설치 프롬프트 이벤트 캡처(앱 내 '홈 화면에 추가' 버튼용) -->
   <script>
@@ -49,7 +50,7 @@
   <script>
     (function () {
       var v = '?v=' + Date.now();
-      var files = ['firebase-config.js', 'auth.js', 'db.js', 'stocks.js', 'ocr-parse.js', 'vision-ocr.js', 'app.js'];
+      var files = ['firebase-config.js', 'auth.js', 'db.js', 'push.js', 'stocks.js', 'ocr-parse.js', 'vision-ocr.js', 'app.js'];
       (function load(i) {
         if (i >= files.length) return;
         var s = document.createElement('script');

@@ -870,6 +870,19 @@ function profileScreen() {
     !appInstalled() ? clk(promptInstall,
       { display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 7, padding: '14px 0', borderRadius: 12, border: '1.5px solid ' + C.brand, background: C.tint, marginBottom: 10 },
       txt('📲', { fontSize: 16 }), txt('홈 화면에 추가', { fontSize: 15, fontWeight: 700, color: C.brand })) : null,
+    (window.Push && window.Push.configured()) ? (function () {
+      const granted = window.Push.permission() === 'granted';
+      return clk(function () {
+        if (granted) { alert('알림이 켜져 있어요. 끄려면 브라우저/기기 설정에서 변경하세요.'); return; }
+        window.Push.enable().then(function (r) {
+          if (r.ok) { alert('알림을 켰어요! 가입 승인·친구 추가 때 알려드릴게요.'); render(); }
+          else if (r.reason === 'denied') alert('알림이 차단돼 있어요. 브라우저/기기 설정에서 이 사이트 알림을 허용해주세요.');
+          else alert('알림을 켤 수 없어요: ' + r.reason);
+        });
+      }, { display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 7, padding: '14px 0', borderRadius: 12, background: granted ? C.bg : C.tint, marginBottom: 10 },
+        txt(granted ? '🔔' : '🔕', { fontSize: 16 }),
+        txt(granted ? '알림 켜짐' : '알림 켜기', { fontSize: 15, fontWeight: 700, color: granted ? C.t2 : C.brand }));
+    })() : null,
     clk(() => { if (confirm('로그아웃 하시겠어요?')) A.signOut(); },
       { display: 'flex', justifyContent: 'center', padding: '14px 0', borderRadius: 12, background: C.bg },
       txt('로그아웃', { fontSize: 15, fontWeight: 700, color: C.t2 })));
@@ -1332,6 +1345,8 @@ function acceptScreen() {
     clk(function () {
       window.DB.acceptInvite(inv.code).then(function (r) {
         PENDING_INVITE = null; clearInviteParam(); startCommunity();
+        // 초대한 사람에게 "친구가 됐어요" 푸시
+        if (window.Push) window.Push.send(r.uid, '새 친구 🎉', ((window.DB && window.DB.profileName) || '친구') + '님이 친구가 됐어요');
         alert((r.name || '친구') + '님과 친구가 됐어요!'); goTab('feed');
       }).catch(function (e) { alert(e.message); PENDING_INVITE = null; clearInviteParam(); goTab('assets'); });
     }, { width: '100%', display: 'flex', justifyContent: 'center', padding: '15px 0', borderRadius: 12, background: C.brand }, txt('수락하기', { fontSize: 15, fontWeight: 700, color: '#fff' })),
@@ -1410,7 +1425,7 @@ function adminScreen() {
               col({ flex: 1, minWidth: 0 }, txt(u.name || '사용자', { fontSize: 15, fontWeight: 700, color: C.t1 })),
               clk(function () { window.DB.rejectUser(u.uid).catch(function () {}); ADMIN.pending = ADMIN.pending.filter(function (x) { return x.uid !== u.uid; }); render(); }, { padding: '8px 12px', borderRadius: 9, background: C.bg, flex: 'none' }, txt('거절', { fontSize: 13, fontWeight: 700, color: C.t3 })),
               clk(function () {
-                window.DB.approveUser(u.uid).then(function () { alert((u.name || '사용자') + ' 승인 완료'); }).catch(function (e) { alert('승인 실패: ' + (e && e.message ? e.message : e) + '\n보안 규칙을 확인해주세요.'); });
+                window.DB.approveUser(u.uid).then(function () { if (window.Push) window.Push.send(u.uid, '가입 승인 완료 ✅', 'FolioFriends 가입이 승인됐어요! 지금 입장할 수 있어요'); alert((u.name || '사용자') + ' 승인 완료'); }).catch(function (e) { alert('승인 실패: ' + (e && e.message ? e.message : e) + '\n보안 규칙을 확인해주세요.'); });
                 ADMIN.pending = ADMIN.pending.filter(function (x) { return x.uid !== u.uid; }); render();
               }, { padding: '8px 16px', borderRadius: 9, background: C.brand, flex: 'none' }, txt('승인', { fontSize: 13, fontWeight: 700, color: '#fff' })));
           }))
@@ -1439,6 +1454,9 @@ function render() {
     if (!D.approved) { app.replaceChildren(pendingScreen()); _lastRenderKey = '#gate'; return; }
   }
   if (PENDING_INVITE) { app.replaceChildren(acceptScreen()); _lastRenderKey = '#gate'; return; }
+
+  // 승인된 사용자: 알림 권한이 이미 있으면 토큰 조용히 갱신(1회)
+  if (window.Push && !window._pushInit && A && A.user) { window._pushInit = true; window.Push.initIfGranted(); }
 
   const port = buildPortfolio();
   let header = null, body = null;
