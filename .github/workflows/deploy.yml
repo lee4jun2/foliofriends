@@ -53,13 +53,6 @@ jobs:
           };
           EOF
 
-      # 캐시 버스팅: 로컬 js/css 참조에 ?v=커밋SHA 부여 → 새 배포가 항상 즉시 반영
-      - name: Cache-bust asset URLs
-        run: |
-          V="${GITHUB_SHA::8}"
-          sed -i -E "s/(\.\/(app|ocr-parse|stocks|auth|db|firebase-config)\.js)/\1?v=$V/g; s/(\.\/styles\.css)/\1?v=$V/g" index.html
-          echo "cache-busted with v=$V"
-
       - uses: actions/configure-pages@v5
 
       - uses: actions/upload-pages-artifact@v3

@@ -4,28 +4,37 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#FFFFFF">
+  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
   <link rel="icon" href="./favicon.svg" type="image/svg+xml">
   <title>FolioFriends · 주식 포트폴리오 공유</title>
   <meta name="description" content="국내·미국 주식 자산을 관리하고 친구들과 포트폴리오를 비중만 공유하는 앱">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.css">
-  <link rel="stylesheet" href="./styles.css">
+  <!-- 스타일도 매 접속마다 최신 (캐시 무효화) -->
+  <script>document.write('<link rel="stylesheet" href="./styles.css?v=' + Date.now() + '">');</script>
 </head>
 <body>
   <div id="app"></div>
 
-  <!-- OCR (Tesseract.js) — 브라우저 내 실행, 무료/온디바이스 -->
+  <!-- 외부 라이브러리 (버전 고정 CDN, 캐시 가능) -->
   <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js" defer></script>
-  <script src="./stocks.js" defer></script>
-  <script src="./ocr-parse.js" defer></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-database-compat.js"></script>
 
-  <!-- Firebase (구글 로그인 + Realtime Database) — compat SDK, 빌드 불필요 -->
-  <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-app-compat.js" defer></script>
-  <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-auth-compat.js" defer></script>
-  <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-database-compat.js" defer></script>
-  <script src="./firebase-config.js" defer></script>
-  <script src="./auth.js" defer></script>
-  <script src="./db.js" defer></script>
-
-  <script src="./app.js" defer></script>
+  <!-- 로컬 스크립트: 매 접속마다 ?v=현재시각 으로 항상 최신 로드 + 순서 보장 -->
+  <script>
+    (function () {
+      var v = '?v=' + Date.now();
+      var files = ['firebase-config.js', 'auth.js', 'db.js', 'stocks.js', 'ocr-parse.js', 'app.js'];
+      (function load(i) {
+        if (i >= files.length) return;
+        var s = document.createElement('script');
+        s.src = './' + files[i] + v;
+        s.onload = function () { load(i + 1); };
+        s.onerror = function () { load(i + 1); };
+        document.body.appendChild(s);
+      })(0);
+    })();
+  </script>
 </body>
 </html>
