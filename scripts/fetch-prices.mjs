@@ -27,6 +27,24 @@ async function fetchQuote(symbol) {
   return { price, prevClose, currency: meta.currency || null, closes };
 }
 
+// 한국 코드의 거래소 접미사 반대쪽(.KS↔.KQ). Gemini가 .KS로 줬는데 실제 코스닥이면 .KQ로 폴백.
+function altKoreanSymbol(sym) {
+  const m = /^(\d{6})\.(KS|KQ)$/i.exec(sym);
+  if (!m) return null;
+  return m[1] + '.' + (m[2].toUpperCase() === 'KS' ? 'KQ' : 'KS');
+}
+
+// 심볼 1개의 시세를 받되, 한국 코드면 .KS↔.KQ 폴백까지 시도한다.
+async function fetchQuoteWithFallback(sym) {
+  try { return await fetchQuote(sym); }
+  catch (e1) {
+    const alt = altKoreanSymbol(sym);
+    if (!alt) throw e1;
+    const q = await fetchQuote(alt); // 반대 접미사로 성공
+    return q; // 저장은 호출부에서 원래 sym 키로 → 앱이 그대로 찾음
+  }
+}
+
 const DB_URL = 'https://foliofriends-3770e-default-rtdb.firebaseio.com';
 
 // 사용자들이 보유 중인 종목 심볼을 RTDB(/symbols, 공개읽기)에서 모은다.
@@ -50,8 +68,8 @@ async function main() {
   const nowIso = new Date().toISOString();
   for (const sym of symbols) {
     try {
-      const q = await fetchQuote(sym);
-      out[sym] = { ...q, time: nowIso };
+      const q = await fetchQuoteWithFallback(sym);
+      out[sym] = { ...q, time: nowIso }; // 원래 요청 심볼 키로 저장(앱이 그 키로 조회)
       console.log(`✓ ${sym}: ${q.price} ${q.currency} (prev ${q.prevClose})`);
     } catch (e) {
       console.error(`✗ ${e.message}`);

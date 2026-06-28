@@ -968,12 +968,18 @@ function pickScreen() {
   const hasUser = !!loadUserHoldings();
   const canAnalyze = OCR_FILES.length > 0;
   const ai = !!(window.visionAvailable && window.visionAvailable());
+  const cap = window.visionDailyCap || 20;
+  const remain = ai && window.visionQuotaRemaining ? window.visionQuotaRemaining() : null;
   return col({ padding: '8px 20px max(20px, env(safe-area-inset-bottom))', flex: 1, minHeight: 0 },
     col({ flex: 1, justifyContent: 'center', gap: 14 },
       col({ alignItems: 'center', gap: 7, marginBottom: 2 },
         txt('스크린샷으로 가져오기', { fontSize: 19, fontWeight: 800, color: C.t1 }),
         txt(ai ? 'AI가 화면을 읽고 종목·수량·평단가를 알아서 채워줘요' : '보유 종목이 보이는 화면을 캡처해 올려주세요',
           { fontSize: 13, fontWeight: 500, color: C.t3, textAlign: 'center', lineHeight: 1.45 })),
+      ai ? row({ alignSelf: 'center', gap: 6, alignItems: 'center', background: remain > 0 ? C.tint : '#FDECEC', padding: '5px 12px', borderRadius: 999 },
+        txt('⚡', { fontSize: 12 }),
+        txt(remain > 0 ? ('오늘 AI 분석 ' + remain + '회 남음') : '오늘 한도를 다 썼어요', { fontSize: 12, fontWeight: 700, color: remain > 0 ? C.brand : C.down }),
+        txt('· 하루 ' + cap + '회', { fontSize: 11, fontWeight: 600, color: C.t4 })) : null,
       multiUpload(),
       txt('💡 종목·수량·평단가가 잘 보이게 캡처하면 더 정확해요', { fontSize: 11.5, fontWeight: 600, color: C.t3, textAlign: 'center' }),
       txt(ai ? '🔒 분석을 위해 구글 AI로 전송돼요 · 사진은 저장하지 않아요' : '🔒 사진은 서버 전송 없이 기기 안에서만 분석돼요',

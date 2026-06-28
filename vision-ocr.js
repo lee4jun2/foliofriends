@@ -69,6 +69,11 @@
     '- shares: 보유 수량(주식 수). 정수 또는 소수.',
     '- avg: 평균 단가(평단가, 1주당 매입 평균가격). 현재가가 아니라 "평단가"여야 한다.',
     '- currency: 평단가의 통화. "$" 또는 달러 표기가 있으면 "USD", 원/₩ 표기면 "KRW".',
+    '- market: 거래소. 한국 주식이면 "KR", 미국 주식이면 "US".',
+    '- ticker: 실시간 시세 조회용 종목 코드(네가 아는 지식으로 채워라).',
+    '    · 미국 주식: 티커 심볼 (예: NVIDIA→NVDA, Tesla→TSLA, Apple→AAPL)',
+    '    · 한국 주식: 6자리 숫자 종목코드 (예: 삼성전자→005930, 카카오→035720, 에코프로비엠→247540)',
+    '    · 확실하지 않으면 빈 문자열로 둬라(추측 금지).',
     '',
     '이미지가 2장이면 한 장은 수량(평가 탭), 한 장은 평단가(시세 탭)일 수 있다.',
     '같은 종목명끼리 짝지어 하나로 병합해라.',
@@ -86,10 +91,26 @@
         shares: { type: 'NUMBER' },
         avg: { type: 'NUMBER' },
         currency: { type: 'STRING', enum: ['KRW', 'USD'] },
+        market: { type: 'STRING', enum: ['KR', 'US'] },
+        ticker: { type: 'STRING' },
       },
       required: ['name', 'shares', 'avg', 'currency'],
     },
   };
+
+  // Gemini가 준 ticker/market로 야후 심볼 구성. 사전 매칭(dictY)이 있으면 그걸 우선.
+  function buildSymbol(r, usd, dictY) {
+    if (dictY) return dictY;
+    const ticker = String(r.ticker || '').trim().toUpperCase().replace(/\s+/g, '');
+    if (!ticker) return null;
+    const market = String(r.market || '').toUpperCase();
+    const isKR = market === 'KR' || (!market && !usd);
+    if (isKR) {
+      const code = ticker.replace(/[^0-9]/g, '');
+      return /^\d{6}$/.test(code) ? code + '.KS' : null; // 크론이 실패 시 .KQ로 폴백
+    }
+    return /^[A-Z][A-Z.\-]{0,5}$/.test(ticker) ? ticker : null; // 미국 티커
+  }
 
   // files: File[]  (1~2장)
   async function visionExtract(files, onProgress) {
@@ -143,13 +164,13 @@
     rows.forEach(function (r) {
       const rawName = (r.name || '').trim();
       if (!rawName) return;
-      const usd = String(r.currency).toUpperCase() === 'USD';
+      const usd = String(r.currency).toUpperCase() === 'USD' || String(r.market).toUpperCase() === 'US';
       const norm = (typeof window.normalizeName === 'function') ? window.normalizeName(rawName) : { name: rawName, y: null };
       const shares = Number(r.shares);
       const avg = Number(r.avg);
       out.push({
         name: norm.name || rawName,
-        y: norm.y || null,
+        y: buildSymbol(r, usd, norm.y),
         usd: usd,
         shares: Number.isFinite(shares) && shares > 0 ? shares : null,
         avg: Number.isFinite(avg) && avg > 0 ? avg : null,
