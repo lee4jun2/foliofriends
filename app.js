@@ -119,6 +119,7 @@ const swon = (n, hide) => hide ? '••••' : (n < 0 ? '-' : '+') + '₩' + 
 const pct = n => (n >= 0 ? '+' : '') + n.toFixed(1) + '%';
 const cc = n => n >= 0 ? C.up : C.down;
 const price = s => s.ccy === '$' ? '$' + s.cur.toFixed(2) : s.cur.toLocaleString('ko-KR') + '원';
+const avgLabel = s => s.ccy === '$' ? '$' + (s.avg % 1 === 0 ? s.avg : s.avg.toFixed(2)) : s.avg.toLocaleString('ko-KR') + '원';
 
 // "실시간 시세 · HH:MM 기준" 표시 (라이브 데이터 있을 때만).
 function liveStamp() {
@@ -263,10 +264,7 @@ function holdingRowB(s, last) {
     logo(s, 40),
     col({ flex: 1, gap: 3, minWidth: 0 },
       txt(s.name, { fontSize: 15, fontWeight: 700, color: C.t1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }),
-      row({ gap: 6 },
-        txt(s.shares + '주', { fontSize: 12, color: C.t3, fontWeight: 500 }),
-        txt('·', { fontSize: 11, color: C.t4 }),
-        txt('비중 ' + s.weight.toFixed(1) + '%', { fontSize: 12, color: C.t3, fontWeight: 500 }))),
+      txt(s.shares + '주 · 평단 ' + avgLabel(s) + ' · ' + s.weight.toFixed(1) + '%', { fontSize: 11.5, fontWeight: 500, color: C.t3, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' })),
     col({ alignItems: 'flex-end', gap: 3, flex: 'none' },
       txt(won(s.val, state.hide), { fontSize: 15, fontWeight: 800, color: C.t1, fontVariantNumeric: 'tabular-nums' }),
       row({ gap: 6, alignItems: 'baseline' },
@@ -292,7 +290,7 @@ function homeB(port) {
   return col({ padding: '10px 20px 28px', background: C.card, minHeight: '100%' },
     row({ justifyContent: 'space-between', padding: '2px 0 18px' },
       txt('내 자산', { fontSize: 18, fontWeight: 800, color: C.t1, whiteSpace: 'nowrap' }),
-      row({ gap: 8 }, eyeBtn(), iconBtn('share', () => goTab('feed')), profileBtn())),
+      row({ gap: 8 }, eyeBtn(), profileBtn())),
     (window.DB && window.DB.isAdmin)
       ? clk(() => push('admin'), { display: 'flex', alignItems: 'center', gap: 8, margin: '0 0 14px', padding: '12px 14px', borderRadius: 12, background: ADMIN.pending.length ? '#FFF1F0' : C.bg },
           icon('lock', 16, ADMIN.pending.length ? C.up : C.t3, 1.8),
@@ -316,27 +314,20 @@ function homeB(port) {
         col({ flex: 1, gap: 5, minWidth: 0 },
           txt('총 평가손익', { fontSize: 12.5, fontWeight: 600, color: 'rgba(255,255,255,0.6)' }),
           txt(swon(port.pnl, state.hide), { fontSize: 16, fontWeight: 800, color: ccd(port.ret), fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' })))),
-    col({ padding: '2px 0 16px' },
-      sectionTitle('자산 비중'),
-      el('div', { style: { height: 14 } }),
-      stackBar(segs, 12, 6),
-      col({ marginTop: 16, gap: 11 }, ...port.holdings.map(s =>
-        row({ justifyContent: 'space-between' },
-          row({ gap: 8, minWidth: 0 },
-            el('div', { style: { width: 9, height: 9, borderRadius: 3, background: s.color, flex: 'none' } }),
-            txt(s.name, { fontSize: 14, fontWeight: 600, color: C.t1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' })),
-          txt(s.weight.toFixed(1) + '%', { fontSize: 14, fontWeight: 700, color: C.t2, fontVariantNumeric: 'tabular-nums', flex: 'none' }))))),
-    el('div', { style: { height: 8, background: C.bg, margin: '4px -20px 0' } }),
-    clk(() => push('import'), { display: 'flex', alignItems: 'center', gap: 10, margin: '16px 0 0', padding: '13px 14px', borderRadius: 12, background: C.tint },
-      icon('share', 18, C.brand, 1.8),
-      col({ flex: 1, gap: 1 },
-        txt('스크린샷으로 내 종목 가져오기', { fontSize: 13.5, fontWeight: 700, color: C.t1 }),
-        txt('증권 앱 화면을 올리면 자동으로 채워져요', { fontSize: 11.5, fontWeight: 500, color: C.t3 })),
-      icon('chev', 16, C.brand, 2)),
-    col({ padding: '18px 0 0' },
-      row({ justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 },
-        txt('보유 종목 ' + port.holdings.length, { fontSize: 15, fontWeight: 800, color: C.t1 }),
-        loadUserHoldings() ? clk(editHoldings, { padding: '4px 10px', borderRadius: 8, background: C.bg }, txt('편집', { fontSize: 12.5, fontWeight: 700, color: C.t2 })) : null),
+    // 스크린샷 가져오기 CTA
+    clk(() => push('import'), { display: 'flex', alignItems: 'center', gap: 12, margin: '0 0 6px', padding: '13px 14px', borderRadius: 16, background: C.tint },
+      row({ justifyContent: 'center', width: 40, height: 40, borderRadius: 12, background: C.brand, flex: 'none' }, icon('share', 20, '#fff', 1.9)),
+      col({ flex: 1, gap: 2, minWidth: 0 },
+        txt('스크린샷으로 종목 가져오기', { fontSize: 14, fontWeight: 800, color: C.t1 }),
+        txt('증권 앱 화면이면 자동으로 채워져요', { fontSize: 12, fontWeight: 500, color: C.t3 })),
+      icon('chev', 18, C.brand, 2.2)),
+    // 보유 종목 (자산 비중 통합)
+    col({ padding: '20px 0 0' },
+      row({ justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 },
+        txt('보유 종목 ' + port.holdings.length, { fontSize: 16, fontWeight: 800, color: C.t1 }),
+        loadUserHoldings() ? clk(editHoldings, { padding: '5px 12px', borderRadius: 9, background: C.bg }, txt('편집', { fontSize: 12.5, fontWeight: 700, color: C.t2 })) : null),
+      stackBar(segs, 10, 5),
+      el('div', { style: { height: 16 } }),
       row({ gap: 7, flexWrap: 'wrap', marginBottom: 2 },
         ...chips.map(([key, label]) => {
           const on = (state.sortKey || 'value') === key;
@@ -450,11 +441,9 @@ function feedScreen() {
           row({ gap: 12, flexWrap: 'wrap' }, ...top.map((x, idx) => row({ gap: 5 },
             el('div', { style: { width: 8, height: 8, borderRadius: 2, background: segs[idx].color } }),
             txt(x.n + ' ' + x.w + '%', { fontSize: 12, fontWeight: 600, color: C.t2 }))))),
-        row({ justifyContent: 'space-between', paddingTop: 3, borderTop: '1px solid ' + C.line },
-          row({ gap: 14, paddingTop: 10 },
-            row({ gap: 5 }, icon('heart', 17, C.t4, 1.8), txt(String(f.likes), { fontSize: 13, fontWeight: 600, color: C.t3 })),
-            row({ gap: 5 }, icon('msg', 17, C.t4, 1.8), txt(String(f.comments), { fontSize: 13, fontWeight: 600, color: C.t3 }))),
-          clk(() => push('friend', f.id), { display: 'flex', alignItems: 'center', gap: 3, paddingTop: 10 },
+        row({ justifyContent: 'space-between', alignItems: 'center', paddingTop: 11, borderTop: '1px solid ' + C.line },
+          txt('오늘 ' + pct(f.day || 0), { fontSize: 13, fontWeight: 700, color: cc(f.day || 0), fontVariantNumeric: 'tabular-nums' }),
+          clk(() => push('friend', f.id), { display: 'flex', alignItems: 'center', gap: 3 },
             txt('포트폴리오 보기', { fontSize: 13.5, fontWeight: 700, color: C.brand }), icon('chev', 16, C.brand, 2.2))));
     }));
 }
@@ -1272,7 +1261,7 @@ function render() {
   let header = null, body = null;
   if (state.view === 'home') body = needsOnboarding() ? onboardingScreen() : homeB(port);
   else if (state.view === 'holdings') { header = backHeader('보유 종목', eyeBtn()); body = holdingsScreen(port); }
-  else if (state.view === 'stock') { const s = port.holdings.find(x => x.id === state.param) || port.holdings[0]; header = backHeader(s.name, iconBtn('star')); body = stockScreen(port); }
+  else if (state.view === 'stock') { const s = port.holdings.find(x => x.id === state.param) || port.holdings[0]; header = backHeader(s.name); body = stockScreen(port); }
   else if (state.view === 'feed') body = feedScreen();
   else if (state.view === 'friend') { const l = feedFriends(); const f = l.find(x => x.id === state.param) || l[0]; header = backHeader(f ? f.name : '포트폴리오'); body = friendScreen(); }
   else if (state.view === 'ranking') body = rankingScreen();
