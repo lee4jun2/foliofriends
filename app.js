@@ -541,13 +541,13 @@ function feedScreen() {
   return col({ padding: '4px 16px 28px', gap: 14 },
     row({ padding: '14px 4px 6px', justifyContent: 'space-between', alignItems: 'flex-end' },
       col({ gap: 4 },
-        txt('친구 피드', { fontSize: 22, fontWeight: 800, color: C.t1 }),
+        txt('친구', { fontSize: 22, fontWeight: 800, color: C.t1 }),
         txt(community ? '팔로우한 친구들의 포트폴리오' : '친구들이 공유한 포트폴리오를 둘러보세요', { fontSize: 13, fontWeight: 500, color: C.t3 })),
       community ? clk(() => push('invite'), { display: 'flex', alignItems: 'center', gap: 4, background: C.tint, padding: '8px 12px', borderRadius: 10 },
         icon('users', 16, C.brand, 1.8), txt('친구 초대', { fontSize: 12.5, fontWeight: 700, color: C.brand })) : null),
-    fr.length ? row({ alignItems: 'center', gap: 7, background: C.bg, padding: '9px 12px', borderRadius: 10, margin: '0 4px' },
-      icon('lock', 14, C.t3, 1.8),
-      txt('금액은 비공개예요 · 비중과 수익률만 공유돼요', { fontSize: 12, fontWeight: 600, color: C.t3 })) : null,
+    row({ alignItems: 'center', gap: 7, background: C.tint, padding: '10px 12px', borderRadius: 10, margin: '0 4px' },
+      icon('lock', 14, C.brand, 1.8),
+      txt('친구끼리는 금액은 공개되지 않고, 비중·수익률만 공유돼요', { fontSize: 12, fontWeight: 600, color: C.brand })),
     (community && !fr.length)
       ? col({ alignItems: 'center', gap: 10, padding: '50px 20px' },
           txt('아직 친구가 없어요', { fontSize: 15, fontWeight: 700, color: C.t2 }),
@@ -773,7 +773,7 @@ function backHeader(title, right) {
 }
 
 function tabBar() {
-  const items = [['assets', '자산', 'bars'], ['feed', '피드', 'users'], ['ranking', '랭킹', 'award']];
+  const items = [['assets', '자산', 'bars'], ['feed', '친구', 'users'], ['ranking', '랭킹', 'award']];
   return row({ justifyContent: 'space-around', padding: '8px 0 max(10px, env(safe-area-inset-bottom))', borderTop: '1px solid ' + C.line, background: C.card, flex: 'none' },
     ...items.map(([key, label, ic]) => {
       const on = state.tab === key;
