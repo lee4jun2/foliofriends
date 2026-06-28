@@ -11,9 +11,11 @@
  * 반환: [{ name, y, usd, shares, avg }]  (OCR_DRAFTS와 동일한 형식)
  */
 (function () {
-  const MODEL = 'gemini-2.5-flash';
+  // flash-lite: 비전 정확도 동등 + 무료 한도가 훨씬 큼(2.5-flash는 무료 20회/일이라 금방 소진).
+  const MODEL = 'gemini-2.5-flash-lite';
   const ENDPOINT = (key) =>
     'https://generativelanguage.googleapis.com/v1beta/models/' + MODEL + ':generateContent?key=' + encodeURIComponent(key);
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
   function apiKey() {
     const k = window.FIREBASE_CONFIG && window.FIREBASE_CONFIG.geminiApiKey;
@@ -114,18 +116,22 @@
 
   const _n = (v) => { const x = Number(v); return Number.isFinite(x) ? x : 0; };
 
-  // 이미지 한 장 → Gemini 호출 → 행 배열
+  // 이미지 한 장 → Gemini 호출 → 행 배열. 503(혼잡)은 재시도, 429(한도)는 QUOTA 에러.
   async function callOne(key, b64) {
     const body = {
       contents: [{ parts: [{ text: PROMPT }, { inline_data: { mime_type: 'image/jpeg', data: b64 } }] }],
       generationConfig: { temperature: 0, responseMimeType: 'application/json', responseSchema: SCHEMA },
     };
-    const res = await fetch(ENDPOINT(key), {
-      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
-    });
-    if (!res.ok) {
+    let res;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      res = await fetch(ENDPOINT(key), {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+      });
+      if (res.ok) break;
+      if (res.status === 503 && attempt < 2) { await sleep(1200 * (attempt + 1)); continue; } // 일시 혼잡 → 재시도
       let msg = 'HTTP ' + res.status;
       try { const j = await res.json(); if (j.error && j.error.message) msg = j.error.message; } catch (e) {}
+      if (res.status === 429 || /quota|exceeded|RESOURCE_EXHAUSTED/i.test(msg)) throw _capError('무료 AI 한도가 잠시 소진됐어요. 잠시 후 다시 시도하거나 직접 입력해 주세요.', 'QUOTA');
       throw new Error('Gemini 호출 실패: ' + msg);
     }
     const json = await res.json();

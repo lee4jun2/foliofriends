@@ -957,7 +957,8 @@ async function runOcrAndParse() {
   const files = OCR_FILES.slice();
   if (!files.length) { OCR_STAGE = 'pick'; OCR_MSG = '스크린샷을 한 장 이상 올려주세요.'; render(); return; }
 
-  // 1) Gemini 비전 우선 (여러 장을 한 번에 이해해 병합) — 키가 있을 때만
+  // 1) Gemini 비전 (키가 있을 때). 키가 있으면 Tesseract로 폴백하지 않는다 —
+  //    Tesseract 결과가 부정확해 "엉망"으로 보이던 원인이라, 실패 시 명확히 안내한다.
   if (window.visionAvailable && window.visionAvailable()) {
     try {
       OCR_PROGRESS = 0.3; render();
@@ -966,20 +967,19 @@ async function runOcrAndParse() {
         if (OCR_STAGE === 'processing') render();
       });
       if (drafts && drafts.length) { OCR_DRAFTS = drafts; OCR_STAGE = 'review'; OCR_MSG = ''; render(); return; }
-      // 결과가 비면 수동 입력 카드로
+      // 인식 결과가 비면 수동 입력 카드로
       OCR_DRAFTS = [{ name: '', y: null, usd: false, shares: 0, avg: 0 }];
       OCR_STAGE = 'review'; OCR_MSG = ''; render(); return;
     } catch (e) {
-      // 과금 방지: 한도 초과/폭주면 더 호출하지 않고 멈춘다.
-      if (e && (e.code === 'DAILY_CAP' || e.code === 'TOO_FAST')) {
-        OCR_STAGE = 'pick'; OCR_MSG = e.message; render(); return;
-      }
-      // 그 외 오류 → 무료 로컬 OCR로 자동 대체
-      OCR_MSG = 'AI 분석에 실패해 기본 인식으로 시도해요…'; render();
+      // 한도 초과(QUOTA/DAILY_CAP)·폭주(TOO_FAST)·기타 오류 → 명확히 안내, 부정확한 폴백 안 함.
+      OCR_STAGE = 'pick';
+      OCR_MSG = (e && e.message) ? e.message : 'AI 분석에 실패했어요. 잠시 후 다시 시도하거나 직접 입력해 주세요.';
+      render();
+      return;
     }
   }
 
-  // 2) Tesseract 폴백 (무료·기기 내 처리). 각 이미지를 두 파서로 시도해 병합.
+  // 2) Tesseract 폴백 — Gemini 키가 없을 때만(무료·기기 내 처리).
   try {
     let sharesList = [], priceList = [];
     for (let i = 0; i < files.length; i++) {
@@ -1128,8 +1128,11 @@ function pickScreen() {
       OCR_MSG ? el('div', { style: { textAlign: 'center' } }, txt(OCR_MSG, { fontSize: 12.5, fontWeight: 600, color: C.up })) : null),
     clk(() => { if (canAnalyze) runOcrAndParse(); }, { display: 'flex', justifyContent: 'center', alignItems: 'center', padding: '15px 0', borderRadius: 12, background: canAnalyze ? C.brand : C.line },
       txt(ai ? 'AI로 분석하기' : '분석하기', { fontSize: 15, fontWeight: 700, color: canAnalyze ? '#fff' : C.t4 })),
+    clk(() => { OCR_DRAFTS = [{ name: '', y: null, usd: false, shares: 0, avg: 0 }]; OCR_STAGE = 'review'; OCR_MSG = ''; render(); },
+      { display: 'flex', justifyContent: 'center', padding: '12px 0', marginTop: 2 },
+      txt('직접 입력하기', { fontSize: 13.5, fontWeight: 600, color: C.t3 })),
     hasUser ? clk(() => { if (confirm('가져온 종목을 지우고 데모로 되돌릴까요?')) { clearUserHoldings(); goTab('assets'); loadPrices(); } },
-      { display: 'flex', justifyContent: 'center', padding: '12px 0', marginTop: 4 },
+      { display: 'flex', justifyContent: 'center', padding: '10px 0' },
       txt('데모 데이터로 초기화', { fontSize: 13, fontWeight: 600, color: C.t3 })) : null);
 }
 
