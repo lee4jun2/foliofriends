@@ -319,34 +319,6 @@ function holdingRowB(s, last) {
 }
 
 /* ===================== Screens ===================== */
-// ----- 광고 배너 (Google AdSense) -----
-// client/slot 이 설정돼 있을 때만 노출. 미설정이면 아무것도 안 보임(거슬리지 않게).
-function adsClient() { const c = window.FIREBASE_CONFIG && window.FIREBASE_CONFIG.adsenseClient; return c && !String(c).includes('YOUR_') ? c : null; }
-function adsSlot() { const c = window.FIREBASE_CONFIG && window.FIREBASE_CONFIG.adsenseSlot; return c && !String(c).includes('YOUR_') ? c : null; }
-function loadAdsense() {
-  if (window._adsLoaded) return;
-  const client = adsClient(); if (!client) return;
-  window._adsLoaded = true;
-  const s = document.createElement('script');
-  s.async = true;
-  s.src = 'https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=' + client;
-  s.crossOrigin = 'anonymous';
-  document.head.appendChild(s);
-}
-function adBanner() {
-  const client = adsClient(); if (!client) return null;
-  loadAdsense();
-  const ins = document.createElement('ins');
-  ins.className = 'adsbygoogle';
-  ins.style.display = 'block';
-  ins.setAttribute('data-ad-client', client);
-  if (adsSlot()) ins.setAttribute('data-ad-slot', adsSlot());
-  ins.setAttribute('data-ad-format', 'auto');
-  ins.setAttribute('data-full-width-responsive', 'true');
-  setTimeout(function () { try { (window.adsbygoogle = window.adsbygoogle || []).push({}); } catch (e) {} }, 0);
-  return el('div', { style: { margin: '6px 16px 2px', minHeight: 50, overflow: 'hidden', borderRadius: 12 } }, ins);
-}
-
 function homeB(port) {
   const segs = port.holdings.map(s => ({ w: s.weight, color: s.color }));
   const sorted = sortBy(port);
@@ -862,6 +834,15 @@ function promptInstall() {
 }
 // 설치 가능 이벤트가 뜨면 버튼 상태 갱신
 window.onInstallAvailable = function () { if (typeof render === 'function') render(); };
+// 가입 직후 1회 자동 설치 유도(브라우저가 사용자 동작 없이 막으면 카드 버튼으로 폴백)
+function maybeAutoInstall() {
+  if (window._autoInstallTried || appInstalled()) return;
+  window._autoInstallTried = true;
+  setTimeout(function () {
+    const e = window.DEFERRED_INSTALL;
+    if (e && e.prompt) { try { e.prompt(); e.userChoice && e.userChoice.finally(function () { window.DEFERRED_INSTALL = null; render(); }); } catch (x) {} }
+  }, 700);
+}
 
 function profileScreen() {
   const A = window.Auth, u = (A && A.user) || {};
@@ -1400,12 +1381,19 @@ function startAdmin() {
 }
 
 function pendingScreen() {
+  maybeAutoInstall(); // 가입 직후 홈 화면 추가 자동 유도(가능한 브라우저에서)
+  const showInstall = !appInstalled();
   return col({ flex: 1, minHeight: 0, justifyContent: 'center', alignItems: 'center', padding: '0 28px', background: C.card },
     row({ justifyContent: 'center', width: 64, height: 64, borderRadius: 20, background: C.bg, marginBottom: 18 }, icon('lock', 30, C.t3, 1.8)),
     txt('승인 대기 중', { fontSize: 19, fontWeight: 800, color: C.t1 }),
     el('div', { style: { height: 10 } }),
     txt('관리자 승인 후 이용할 수 있어요.', { fontSize: 14, fontWeight: 500, color: C.t3, textAlign: 'center' }),
     txt('초대받은 분이라면 곧 승인돼요.', { fontSize: 14, fontWeight: 500, color: C.t3, textAlign: 'center' }),
+    showInstall ? col({ alignItems: 'center', gap: 10, marginTop: 28, padding: '18px 20px', borderRadius: 16, background: C.tint, alignSelf: 'stretch' },
+      txt('📲 홈 화면에 추가해두세요', { fontSize: 15, fontWeight: 800, color: C.t1 }),
+      txt('승인되면 바로 앱처럼 열 수 있어요', { fontSize: 12.5, fontWeight: 500, color: C.t3, textAlign: 'center' }),
+      clk(promptInstall, { display: 'flex', justifyContent: 'center', alignSelf: 'stretch', padding: '13px 0', borderRadius: 12, background: C.brand, marginTop: 2 },
+        txt('홈 화면에 추가', { fontSize: 15, fontWeight: 700, color: '#fff' }))) : null,
     el('div', { style: { height: 24 } }),
     clk(function () { if (window.Auth) window.Auth.signOut(); }, { padding: '10px' }, txt('로그아웃', { fontSize: 14, fontWeight: 600, color: C.t3 })));
 }
@@ -1470,11 +1458,7 @@ function render() {
   if (state.view === 'import' || state.view === 'invite' || state.view === 'admin' || state.view === 'profile') {
     app.append(body); // 자체 레이아웃/스크롤 관리
   } else {
-    const scrn = el('div', { class: 'scrn' }, body);
-    if (state.view === 'home' || state.view === 'feed' || state.view === 'ranking') {
-      const ad = adBanner(); if (ad) scrn.append(ad);
-    }
-    app.append(scrn);
+    app.append(el('div', { class: 'scrn' }, body));
   }
   // import는 자체 하단 버튼/뒤로가기가 있으므로 탭바 숨김
   if (state.view !== 'import') app.append(tabBar());

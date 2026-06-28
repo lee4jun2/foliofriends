@@ -51,8 +51,6 @@ jobs:
             telegramBotToken: '${{ secrets.TELEGRAM_BOT_TOKEN }}',
             telegramChatId: '${{ secrets.TELEGRAM_CHAT_ID }}',
             geminiApiKey: '${{ secrets.GEMINI_API_KEY }}',
-            adsenseClient: '${{ secrets.ADSENSE_CLIENT }}',
-            adsenseSlot: '${{ secrets.ADSENSE_SLOT }}',
           };
           EOF
 
