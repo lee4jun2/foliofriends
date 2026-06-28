@@ -12,6 +12,51 @@ const KRW = 1380;
 // 실시간 시세 (prices.json 에서 채워짐): { yahooSymbol: {price, prevClose, currency, time} }
 let LIVE = {};
 let LIVE_UPDATED = null;
+// 종목 상세 차트용 1년치 일봉 — 저장하지 않고 상세 진입 시 프록시로 동적 fetch(세션 메모리 캐시).
+let CHART_CACHE = {}; // { yahooSymbol: { closes:[], dates:[] } | { loading:true } | { failed:true } }
+
+// 야후 직접 호출은 브라우저 CORS로 막혀서 공개 CORS 프록시를 경유한다(실패 시 다음 프록시로).
+const PRICE_PROXIES = [
+  (u) => 'https://corsproxy.io/?url=' + encodeURIComponent(u),
+  (u) => 'https://api.allorigins.win/raw?url=' + encodeURIComponent(u),
+];
+async function proxyJson(url) {
+  let lastErr;
+  for (const wrap of PRICE_PROXIES) {
+    try {
+      const res = await fetch(wrap(url), { cache: 'no-store' });
+      if (res.ok) return await res.json();
+      lastErr = new Error('HTTP ' + res.status);
+    } catch (e) { lastErr = e; }
+  }
+  throw lastErr || new Error('proxy failed');
+}
+// 야후 차트(1y) 동적 조회 → { closes, dates }
+async function yahooHistory(symbol, range) {
+  const url = 'https://query1.finance.yahoo.com/v8/finance/chart/' + encodeURIComponent(symbol) + '?interval=1d&range=' + (range || '1y');
+  const j = await proxyJson(url);
+  const r = j && j.chart && j.chart.result && j.chart.result[0];
+  if (!r) throw new Error('no data');
+  const ts = r.timestamp || [];
+  const raw = (r.indicators && r.indicators.quote && r.indicators.quote[0] && r.indicators.quote[0].close) || [];
+  const closes = [], dates = [];
+  for (let i = 0; i < raw.length; i++) {
+    if (raw[i] != null && ts[i] != null) {
+      closes.push(Math.round(raw[i] * 100) / 100);
+      dates.push(new Date(ts[i] * 1000).toISOString().slice(0, 10));
+    }
+  }
+  if (closes.length < 2) throw new Error('not enough points');
+  return { closes, dates };
+}
+// 상세 진입 시 1회만 동적 로드(중복/재요청 방지). 완료되면 render().
+function ensureHistory(symbol) {
+  if (!symbol || CHART_CACHE[symbol]) return;
+  CHART_CACHE[symbol] = { loading: true };
+  yahooHistory(symbol, '1y')
+    .then((d) => { CHART_CACHE[symbol] = d; if (state.view === 'stock') render(); })
+    .catch(() => { CHART_CACHE[symbol] = { failed: true }; if (state.view === 'stock') render(); });
+}
 
 // 데모 시드 (사용자가 스크린샷으로 가져오기 전 기본).
 const SEED_RAW = [
@@ -351,7 +396,8 @@ function holdingsScreen(port) {
 }
 
 // 실제 일봉 종가 시계열로 라인+영역 차트
-function realChart(closes, w, h, color) {
+// 대화형 일봉 차트: 누르거나 끌면 그 시점의 날짜·주가를 위쪽 툴팁에 표시.
+function realChart(closes, dates, w, h, color, ccy) {
   const min = Math.min(...closes), max = Math.max(...closes);
   const range = (max - min) || 1;
   const n = closes.length;
@@ -361,23 +407,67 @@ function realChart(closes, w, h, color) {
   closes.forEach((v, i) => { line += (i === 0 ? 'M' : 'L') + X(i).toFixed(1) + ' ' + Y(v).toFixed(1) + ' '; });
   const area = line + 'L' + w + ' ' + h + ' L0 ' + h + ' Z';
   const gid = 'rc' + Math.round(min) + n;
-  return el('svg', { width: w, height: h, viewBox: '0 0 ' + w + ' ' + h, style: { width: '100%', height: h } },
+  const fmtP = (v) => ccy === '$' ? '$' + v.toFixed(2) : Math.round(v).toLocaleString('ko-KR') + '원';
+  const fmtD = (d) => d ? d.replace(/^\d{2}(\d{2})-(\d{2})-(\d{2})$/, '$1.$2.$3') : '';
+
+  const vline = el('line', { x1: 0, y1: 6, x2: 0, y2: h, stroke: C.t3, 'stroke-width': 1, 'stroke-dasharray': '3 3' });
+  const dot = el('circle', { cx: 0, cy: 0, r: 4.5, fill: color, stroke: '#fff', 'stroke-width': 2 });
+  const cross = el('g', { style: { opacity: 0, transition: 'opacity .08s' } }, vline, dot);
+  const svg = el('svg', { width: w, height: h, viewBox: '0 0 ' + w + ' ' + h, style: { width: '100%', height: h, display: 'block', touchAction: 'none', cursor: 'crosshair' } },
     el('defs', null, el('linearGradient', { id: gid, x1: 0, y1: 0, x2: 0, y2: 1 },
       el('stop', { offset: '0%', 'stop-color': color, 'stop-opacity': 0.18 }),
       el('stop', { offset: '100%', 'stop-color': color, 'stop-opacity': 0 }))),
     el('path', { d: area, fill: 'url(#' + gid + ')' }),
-    el('path', { d: line, fill: 'none', stroke: color, 'stroke-width': 2.5, 'stroke-linecap': 'round', 'stroke-linejoin': 'round' }));
+    el('path', { d: line, fill: 'none', stroke: color, 'stroke-width': 2.5, 'stroke-linecap': 'round', 'stroke-linejoin': 'round' }),
+    cross);
+
+  // 위쪽 스크럽 툴팁 (기본은 최신값)
+  const dEl = txt(fmtD(dates && dates[n - 1]), { fontSize: 12, fontWeight: 600, color: C.t3, fontVariantNumeric: 'tabular-nums' });
+  const pEl = txt(fmtP(closes[n - 1]), { fontSize: 14, fontWeight: 800, color: C.t1, fontVariantNumeric: 'tabular-nums' });
+  const strip = row({ justifyContent: 'space-between', alignItems: 'baseline', height: 20, marginBottom: 4 }, dEl, pEl);
+
+  function update(clientX) {
+    const r = svg.getBoundingClientRect();
+    let i = Math.round(((clientX - r.left) / (r.width || 1)) * (n - 1));
+    i = Math.max(0, Math.min(n - 1, i));
+    const x = X(i), y = Y(closes[i]);
+    vline.setAttribute('x1', x); vline.setAttribute('x2', x);
+    dot.setAttribute('cx', x); dot.setAttribute('cy', y);
+    cross.style.opacity = '1';
+    dEl.textContent = fmtD(dates && dates[i]); pEl.textContent = fmtP(closes[i]);
+    dEl.style.color = C.t1;
+  }
+  function reset() {
+    cross.style.opacity = '0';
+    dEl.textContent = fmtD(dates && dates[n - 1]); pEl.textContent = fmtP(closes[n - 1]);
+    dEl.style.color = C.t3;
+  }
+  svg.addEventListener('pointerdown', (e) => { svg.setPointerCapture && svg.setPointerCapture(e.pointerId); update(e.clientX); });
+  svg.addEventListener('pointermove', (e) => { if (e.buttons || e.pointerType === 'mouse') update(e.clientX); });
+  svg.addEventListener('pointerup', reset);
+  svg.addEventListener('pointerleave', reset);
+  svg.addEventListener('pointercancel', reset);
+
+  return col({}, strip, svg);
 }
-const CHART_PERIODS = { '1주': 5, '2주': 10, '1개월': 24 };
+const CHART_PERIODS = { '1주': 5, '1개월': 22, '3개월': 66, '6개월': 132, '1년': 260 };
 let CHART_PERIOD = '1개월';
 
 function stockScreen(port) {
   const s = port.holdings.find(x => x.id === state.param) || port.holdings[0];
   const live = LIVE[s.y];
-  const allCloses = (live && live.closes) || [];
+  if (s.y) ensureHistory(s.y); // 1년치 동적 로드(저장 안 함)
+  const hist = s.y && CHART_CACHE[s.y];
+  // 1년치가 오면 그걸로, 아직이면 가벼운 캐시(최근 ~1개월)로 우선 표시
+  const histReady = hist && hist.closes && hist.closes.length > 1;
+  const allCloses = histReady ? hist.closes : ((live && live.closes) || []);
+  const allDates = histReady ? hist.dates : [];
   const periods = Object.keys(CHART_PERIODS);
-  const closes = allCloses.slice(-CHART_PERIODS[CHART_PERIOD]);
+  const cnt = CHART_PERIODS[CHART_PERIOD];
+  const closes = allCloses.slice(-cnt);
+  const dates = allDates.slice(-cnt);
   const trendColor = closes.length > 1 ? (closes[closes.length - 1] >= closes[0] ? C.up : C.down) : cc(s.ret);
+  const periodChg = closes.length > 1 ? (closes[closes.length - 1] - closes[0]) / closes[0] * 100 : 0;
   const rows = [
     ['보유 수량', s.shares + '주'],
     ['평균 단가', s.ccy === '$' ? '$' + s.avg.toFixed(2) : s.avg.toLocaleString('ko-KR') + '원'],
@@ -391,14 +481,17 @@ function stockScreen(port) {
       row({ gap: 10, alignItems: 'baseline', marginTop: 8 },
         txt(price(s), { fontSize: 28, fontWeight: 800, color: C.t1, fontVariantNumeric: 'tabular-nums' }),
         txt(pct(s.day) + ' 오늘', { fontSize: 15, fontWeight: 700, color: cc(s.day) }))),
-    el('div', { style: { padding: '10px 20px 0' } },
+    el('div', { style: { padding: '6px 20px 0' } },
       closes.length > 1
-        ? realChart(closes, 334, 150, trendColor)
-        : col({ justifyContent: 'center', alignItems: 'center', height: 150 }, txt('시세 데이터 수집 중이에요', { fontSize: 13, fontWeight: 500, color: C.t4 }), txt('(최대 15분 내 표시)', { fontSize: 11.5, color: C.t4, marginTop: 4 }))),
+        ? realChart(closes, dates, 334, 150, trendColor, s.ccy)
+        : col({ justifyContent: 'center', alignItems: 'center', height: 150 }, txt('시세 데이터를 불러오는 중이에요', { fontSize: 13, fontWeight: 500, color: C.t4 }), txt('(잠시만 기다려 주세요)', { fontSize: 11.5, color: C.t4, marginTop: 4 }))),
     closes.length > 1
-      ? row({ gap: 6, padding: '8px 20px 18px', justifyContent: 'space-between' },
-          ...periods.map(pr => clk(() => { CHART_PERIOD = pr; render(); }, { display: 'flex', justifyContent: 'center', flex: 1, padding: '6px 0', borderRadius: 8, background: pr === CHART_PERIOD ? C.t1 : 'transparent' },
-            txt(pr, { fontSize: 12.5, fontWeight: 700, color: pr === CHART_PERIOD ? '#fff' : C.t3 }))))
+      ? col({ padding: '4px 20px 16px', gap: 10 },
+          row({ justifyContent: 'flex-end' },
+            txt('지난 ' + CHART_PERIOD + ' ' + pct(periodChg), { fontSize: 12.5, fontWeight: 700, color: cc(periodChg) })),
+          row({ gap: 6, justifyContent: 'space-between' },
+            ...periods.map(pr => clk(() => { CHART_PERIOD = pr; render(); }, { display: 'flex', justifyContent: 'center', flex: 1, padding: '7px 0', borderRadius: 8, background: pr === CHART_PERIOD ? C.t1 : 'transparent' },
+              txt(pr, { fontSize: 12.5, fontWeight: 700, color: pr === CHART_PERIOD ? '#fff' : C.t3 })))))
       : el('div', { style: { height: 18 } }),
     col({ margin: '0 20px', background: C.bg, borderRadius: 16, padding: 18 },
       txt('내 보유 현황', { fontSize: 15, fontWeight: 800, color: C.t1, marginBottom: 14 }),
@@ -1162,7 +1255,7 @@ function makeInvite() {
 function shareInvite() {
   if (!INVITE.url) return;
   // url을 text에 또 넣으면 일부 앱이 링크를 중복 첨부함 → url 필드만 사용
-  if (navigator.share) navigator.share({ title: 'FolioFriends 친구 초대', text: 'FolioFriends에서 친구 맺어요! (30분 내 수락)', url: INVITE.url }).catch(function () {});
+  if (navigator.share) navigator.share({ title: 'FolioFriends 친구 초대', text: 'FolioFriends에서 친구 맺어요! (3시간 내 수락)', url: INVITE.url }).catch(function () {});
   else if (navigator.clipboard) navigator.clipboard.writeText(INVITE.url).then(function () { alert('초대 링크를 복사했어요'); });
   else alert(INVITE.url);
 }
@@ -1173,7 +1266,7 @@ function inviteScreen() {
     el('div', { class: 'scrn', style: { flex: 1, padding: '8px 20px 24px' } },
       col({ background: C.tint, borderRadius: 16, padding: 18, gap: 12, marginTop: 8 },
         txt('친구 초대하기', { fontSize: 16, fontWeight: 800, color: C.t1 }),
-        txt('초대 링크를 보내고, 상대가 로그인 상태로 수락하면 서로 친구가 돼요. 링크는 30분간 유효해요.', { fontSize: 12.5, fontWeight: 500, color: C.t2, lineHeight: 1.45 }),
+        txt('초대 링크를 보내고, 상대가 로그인 상태로 수락하면 서로 친구가 돼요. 링크는 3시간 동안 유효해요.', { fontSize: 12.5, fontWeight: 500, color: C.t2, lineHeight: 1.45 }),
         INVITE.url
           ? col({ gap: 8 },
               el('div', { style: { background: '#fff', borderRadius: 10, padding: '12px 14px', wordBreak: 'break-all', fontSize: 12.5, color: C.t2, fontWeight: 600 } }, INVITE.url),

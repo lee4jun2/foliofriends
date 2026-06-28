@@ -12,6 +12,8 @@ const symbolsUrl = new URL('symbols.json', ROOT);
 const outUrl = new URL('prices.json', ROOT);
 
 async function fetchQuote(symbol) {
+  // 가벼운 현재가 캐시: 현재가/전일종가/통화 + 홈·랭킹 스파크라인용 최근 ~24 거래일만.
+  // (1년치 차트 데이터는 저장하지 않고, 앱이 종목 상세를 열 때 프록시로 동적 fetch)
   const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?interval=1d&range=1mo`;
   const res = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0' } });
   if (!res.ok) throw new Error(`${symbol}: HTTP ${res.status}`);
@@ -21,7 +23,6 @@ async function fetchQuote(symbol) {
   if (!meta || meta.regularMarketPrice == null) throw new Error(`${symbol}: no price`);
   const price = meta.regularMarketPrice;
   const prevClose = meta.chartPreviousClose ?? meta.previousClose ?? price;
-  // 일봉 종가 시계열 (차트용) — 최근 ~22 거래일
   let closes = (result?.indicators?.quote?.[0]?.close || []).filter((v) => v != null);
   closes = closes.slice(-24).map((v) => Math.round(v * 100) / 100);
   return { price, prevClose, currency: meta.currency || null, closes };

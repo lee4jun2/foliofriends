@@ -19,7 +19,7 @@
   // 가입 승인 권한을 가진 소유자(관리자) 이메일. 이 계정만 승인 가능.
   const OWNER_EMAIL = 'leejunhyuk0205@gmail.com';
 
-  const INVITE_TTL = 30 * 60 * 1000; // 30분
+  const INVITE_TTL = 3 * 60 * 60 * 1000; // 3시간
 
   const DB = {
     enabled: false, me: null, onAuth: null,
