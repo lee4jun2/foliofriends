@@ -319,6 +319,34 @@ function holdingRowB(s, last) {
 }
 
 /* ===================== Screens ===================== */
+// ----- 광고 배너 (Google AdSense) -----
+// client/slot 이 설정돼 있을 때만 노출. 미설정이면 아무것도 안 보임(거슬리지 않게).
+function adsClient() { const c = window.FIREBASE_CONFIG && window.FIREBASE_CONFIG.adsenseClient; return c && !String(c).includes('YOUR_') ? c : null; }
+function adsSlot() { const c = window.FIREBASE_CONFIG && window.FIREBASE_CONFIG.adsenseSlot; return c && !String(c).includes('YOUR_') ? c : null; }
+function loadAdsense() {
+  if (window._adsLoaded) return;
+  const client = adsClient(); if (!client) return;
+  window._adsLoaded = true;
+  const s = document.createElement('script');
+  s.async = true;
+  s.src = 'https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=' + client;
+  s.crossOrigin = 'anonymous';
+  document.head.appendChild(s);
+}
+function adBanner() {
+  const client = adsClient(); if (!client) return null;
+  loadAdsense();
+  const ins = document.createElement('ins');
+  ins.className = 'adsbygoogle';
+  ins.style.display = 'block';
+  ins.setAttribute('data-ad-client', client);
+  if (adsSlot()) ins.setAttribute('data-ad-slot', adsSlot());
+  ins.setAttribute('data-ad-format', 'auto');
+  ins.setAttribute('data-full-width-responsive', 'true');
+  setTimeout(function () { try { (window.adsbygoogle = window.adsbygoogle || []).push({}); } catch (e) {} }, 0);
+  return el('div', { style: { margin: '6px 16px 2px', minHeight: 50, overflow: 'hidden', borderRadius: 12 } }, ins);
+}
+
 function homeB(port) {
   const segs = port.holdings.map(s => ({ w: s.weight, color: s.color }));
   const sorted = sortBy(port);
@@ -517,6 +545,9 @@ function feedScreen() {
         txt(community ? '팔로우한 친구들의 포트폴리오' : '친구들이 공유한 포트폴리오를 둘러보세요', { fontSize: 13, fontWeight: 500, color: C.t3 })),
       community ? clk(() => push('invite'), { display: 'flex', alignItems: 'center', gap: 4, background: C.tint, padding: '8px 12px', borderRadius: 10 },
         icon('users', 16, C.brand, 1.8), txt('친구 초대', { fontSize: 12.5, fontWeight: 700, color: C.brand })) : null),
+    fr.length ? row({ alignItems: 'center', gap: 7, background: C.bg, padding: '9px 12px', borderRadius: 10, margin: '0 4px' },
+      icon('lock', 14, C.t3, 1.8),
+      txt('금액은 비공개예요 · 비중과 수익률만 공유돼요', { fontSize: 12, fontWeight: 600, color: C.t3 })) : null,
     (community && !fr.length)
       ? col({ alignItems: 'center', gap: 10, padding: '50px 20px' },
           txt('아직 친구가 없어요', { fontSize: 15, fontWeight: 700, color: C.t2 }),
@@ -563,7 +594,7 @@ function friendScreen() {
       col({ flex: 1, gap: 3 },
         txt(f.name, { fontSize: 19, fontWeight: 800, color: C.t1 }),
         row({ gap: 6, background: C.bg, padding: '3px 9px', borderRadius: 8, alignSelf: 'flex-start' },
-          icon('lock', 13, C.t3, 1.8), txt('비중만 공개', { fontSize: 11.5, fontWeight: 700, color: C.t3 }))),
+          icon('lock', 13, C.t3, 1.8), txt('금액 비공개 · 비중만 공개', { fontSize: 11.5, fontWeight: 700, color: C.t3 }))),
       col({ alignItems: 'flex-end', gap: 2 },
         txt('누적 ' + pct(f.ret), { fontSize: 20, fontWeight: 800, color: cc(f.ret) }),
         txt('오늘 ' + pct(f.day || 0), { fontSize: 12.5, fontWeight: 600, color: cc(f.day || 0) }))),
@@ -812,6 +843,26 @@ function profileBtn() {
     inner);
 }
 
+// ----- PWA 설치(홈 화면에 추가) -----
+function appInstalled() {
+  return (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) || window.navigator.standalone === true;
+}
+function promptInstall() {
+  const e = window.DEFERRED_INSTALL;
+  if (e && e.prompt) {
+    e.prompt();
+    (e.userChoice || Promise.resolve()).finally(function () { window.DEFERRED_INSTALL = null; render(); });
+    return;
+  }
+  if (/iphone|ipad|ipod/i.test(navigator.userAgent)) {
+    alert('Safari 하단의 공유 버튼(□↑)을 누른 뒤 "홈 화면에 추가"를 선택하면 앱처럼 쓸 수 있어요.');
+  } else {
+    alert('브라우저 메뉴에서 "홈 화면에 추가" 또는 "앱 설치"를 선택하면 앱처럼 쓸 수 있어요.');
+  }
+}
+// 설치 가능 이벤트가 뜨면 버튼 상태 갱신
+window.onInstallAvailable = function () { if (typeof render === 'function') render(); };
+
 function profileScreen() {
   const A = window.Auth, u = (A && A.user) || {};
   const cur = (window.DB && window.DB.profileName) || u.name || '';
@@ -835,6 +886,9 @@ function profileScreen() {
         if (window.DB && window.DB.setNickname) window.DB.setNickname(v).then(function () { alert('닉네임이 변경됐어요'); history.back(); });
       }, { display: 'flex', justifyContent: 'center', padding: '14px 0', borderRadius: 12, background: C.brand, marginTop: 16 },
         txt('저장', { fontSize: 15, fontWeight: 700, color: '#fff' }))),
+    !appInstalled() ? clk(promptInstall,
+      { display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 7, padding: '14px 0', borderRadius: 12, border: '1.5px solid ' + C.brand, background: C.tint, marginBottom: 10 },
+      txt('📲', { fontSize: 16 }), txt('홈 화면에 추가', { fontSize: 15, fontWeight: 700, color: C.brand })) : null,
     clk(() => { if (confirm('로그아웃 하시겠어요?')) A.signOut(); },
       { display: 'flex', justifyContent: 'center', padding: '14px 0', borderRadius: 12, background: C.bg },
       txt('로그아웃', { fontSize: 15, fontWeight: 700, color: C.t2 })));
@@ -1416,7 +1470,11 @@ function render() {
   if (state.view === 'import' || state.view === 'invite' || state.view === 'admin' || state.view === 'profile') {
     app.append(body); // 자체 레이아웃/스크롤 관리
   } else {
-    app.append(el('div', { class: 'scrn' }, body));
+    const scrn = el('div', { class: 'scrn' }, body);
+    if (state.view === 'home' || state.view === 'feed' || state.view === 'ranking') {
+      const ad = adBanner(); if (ad) scrn.append(ad);
+    }
+    app.append(scrn);
   }
   // import는 자체 하단 버튼/뒤로가기가 있으므로 탭바 숨김
   if (state.view !== 'import') app.append(tabBar());

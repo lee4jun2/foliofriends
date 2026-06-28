@@ -1,0 +1,15 @@
+{
+  "name": "FolioFriends · 주식 포트폴리오 공유",
+  "short_name": "FolioFriends",
+  "description": "국내·미국 주식 자산을 관리하고 친구들과 비중·수익률만 공유하는 앱",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#FFFFFF",
+  "theme_color": "#3182F6",
+  "lang": "ko",
+  "icons": [
+    { "src": "./icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable" },
+    { "src": "./icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ]
+}

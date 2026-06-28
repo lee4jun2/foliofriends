@@ -6,6 +6,11 @@
   <meta name="theme-color" content="#FFFFFF">
   <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
   <link rel="icon" href="./favicon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="./icon-192.png">
+  <link rel="manifest" href="./manifest.json">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="FolioFriends">
   <title>FolioFriends · 주식 포트폴리오 공유</title>
   <meta name="description" content="국내·미국 주식 자산을 관리하고 친구들과 포트폴리오를 비중만 공유하는 앱">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.css">
@@ -20,6 +25,25 @@
   <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-auth-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-database-compat.js"></script>
+
+  <!-- PWA: 서비스워커 등록 + 설치 프롬프트 이벤트 캡처(앱 내 '홈 화면에 추가' 버튼용) -->
+  <script>
+    (function () {
+      if ('serviceWorker' in navigator) {
+        window.addEventListener('load', function () { navigator.serviceWorker.register('./sw.js').catch(function () {}); });
+      }
+      window.DEFERRED_INSTALL = null;
+      window.addEventListener('beforeinstallprompt', function (e) {
+        e.preventDefault();
+        window.DEFERRED_INSTALL = e;
+        if (typeof window.onInstallAvailable === 'function') window.onInstallAvailable();
+      });
+      window.addEventListener('appinstalled', function () {
+        window.DEFERRED_INSTALL = null;
+        if (typeof window.onInstallAvailable === 'function') window.onInstallAvailable();
+      });
+    })();
+  </script>
 
   <!-- 로컬 스크립트: 매 접속마다 ?v=현재시각 으로 항상 최신 로드 + 순서 보장 -->
   <script>

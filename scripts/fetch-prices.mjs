@@ -22,9 +22,13 @@ async function fetchQuote(symbol) {
   const meta = result?.meta;
   if (!meta || meta.regularMarketPrice == null) throw new Error(`${symbol}: no price`);
   const price = meta.regularMarketPrice;
-  const prevClose = meta.chartPreviousClose ?? meta.previousClose ?? price;
   let closes = (result?.indicators?.quote?.[0]?.close || []).filter((v) => v != null);
   closes = closes.slice(-24).map((v) => Math.round(v * 100) / 100);
+  // 전일종가(일간 변동용) = 직전 거래일 종가. meta.chartPreviousClose 는 "차트 범위 시작 전"
+  // 값(=약 1개월 전)이라 일간 계산에 쓰면 안 된다. 일봉 시계열의 마지막 직전값을 쓴다.
+  const prevClose =
+    meta.previousClose ?? meta.regularMarketPreviousClose ??
+    (closes.length >= 2 ? closes[closes.length - 2] : (meta.chartPreviousClose ?? price));
   return { price, prevClose, currency: meta.currency || null, closes };
 }
 
