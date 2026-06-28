@@ -133,7 +133,7 @@ function liveStamp() {
 
 /* ===================== DOM helpers ===================== */
 const SVG_NS = 'http://www.w3.org/2000/svg';
-const SVG_TAGS = new Set(['svg', 'path', 'circle', 'ellipse', 'line', 'rect', 'polygon', 'defs', 'linearGradient', 'stop', 'g']);
+const SVG_TAGS = new Set(['svg', 'path', 'circle', 'ellipse', 'line', 'rect', 'polygon', 'defs', 'linearGradient', 'stop', 'g', 'text']);
 const UNITLESS = new Set(['fontWeight', 'flex', 'flexGrow', 'flexShrink', 'opacity', 'zIndex', 'lineHeight', 'order', 'strokeWidth']);
 
 function el(tag, props, ...kids) {
@@ -324,7 +324,9 @@ function homeB(port) {
         txt('증권 앱 화면을 올리면 자동으로 채워져요', { fontSize: 11.5, fontWeight: 500, color: C.t3 })),
       icon('chev', 16, C.brand, 2)),
     col({ padding: '18px 0 0' },
-      txt('보유 종목 ' + port.holdings.length, { fontSize: 15, fontWeight: 800, color: C.t1, marginBottom: 12 }),
+      row({ justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 },
+        txt('보유 종목 ' + port.holdings.length, { fontSize: 15, fontWeight: 800, color: C.t1 }),
+        loadUserHoldings() ? clk(editHoldings, { padding: '4px 10px', borderRadius: 8, background: C.bg }, txt('편집', { fontSize: 12.5, fontWeight: 700, color: C.t2 })) : null),
       row({ gap: 7, flexWrap: 'wrap', marginBottom: 2 },
         ...chips.map(([key, label]) => {
           const on = (state.sortKey || 'value') === key;
@@ -492,21 +494,55 @@ function friendScreen() {
         txt(pct(x.r), { fontSize: 12.5, fontWeight: 600, color: cc(x.r) }))))));
 }
 
+// 랭킹 인원들의 누적 수익률 꺾은선 차트
+function rankingChart(people) {
+  const data = [...people].sort((a, b) => b.ret - a.ret);
+  const n = data.length;
+  if (!n) return null;
+  const w = 326, h = 132, padL = 10, padR = 10, padT = 16, padB = 24;
+  const rets = data.map((p) => p.ret);
+  let min = Math.min(0, ...rets), max = Math.max(0, ...rets);
+  if (max === min) max = min + 1;
+  const X = (i) => padL + (n <= 1 ? 0.5 : i / (n - 1)) * (w - padL - padR);
+  const Y = (v) => padT + (1 - (v - min) / (max - min)) * (h - padT - padB);
+  let line = '';
+  data.forEach((p, i) => { line += (i === 0 ? 'M' : 'L') + X(i).toFixed(1) + ' ' + Y(p.ret).toFixed(1) + ' '; });
+  const zeroY = Y(0);
+  return el('svg', { width: w, height: h, viewBox: '0 0 ' + w + ' ' + h, style: { width: '100%', height: h } },
+    el('line', { x1: 0, y1: zeroY, x2: w, y2: zeroY, stroke: C.line, 'stroke-width': 1, 'stroke-dasharray': '3 3' }),
+    el('path', { d: line, fill: 'none', stroke: C.brand, 'stroke-width': 2.5, 'stroke-linecap': 'round', 'stroke-linejoin': 'round' }),
+    ...data.map((p, i) => el('circle', { cx: X(i), cy: Y(p.ret), r: p.isMe ? 5.5 : 4, fill: p.isMe ? C.brand : p.color, stroke: '#fff', 'stroke-width': 1.5 })),
+    ...data.map((p, i) => el('text', { x: X(i), y: Y(p.ret) - 9, 'text-anchor': 'middle', 'font-size': 10, 'font-weight': 800, fill: cc(p.ret) }, pct(p.ret))),
+    ...data.map((p, i) => el('text', { x: X(i), y: h - 7, 'text-anchor': 'middle', 'font-size': 9.5, 'font-weight': 700, fill: p.isMe ? C.brand : C.t3 }, p.short)));
+}
+
+let RANK_SORT = 'ret'; // ret(누적) | day(일간)
 function rankingScreen() {
   const community = useCommunity();
   const fr = feedFriends();
-  const myRet = (() => { try { return Math.round(buildPortfolio().ret * 10) / 10; } catch (e) { return 0; } })();
+  const myP = (() => { try { return buildPortfolio(); } catch (e) { return null; } })();
+  const myRet = myP ? Math.round(myP.ret * 10) / 10 : 27.7;
+  const myDay = myP ? Math.round(myP.dayPct * 10) / 10 : 0;
   const myName = (window.Auth && window.Auth.user && (window.Auth.user.name || '나')) || '나 (지훈)';
-  const me = { id: 'me', name: community ? myName : '나 (지훈)', short: myName.replace(/\s/g, '').slice(0, 2), color: C.brand, ret: community ? myRet : 27.7, isMe: true };
-  const list = [...fr, me].sort((a, b) => b.ret - a.ret);
+  const me = { id: 'me', name: community ? myName : '나 (지훈)', short: (myName.replace(/\s*\(.*\)\s*/, '').replace(/\s/g, '').slice(0, 2)) || '나', color: C.brand, ret: community ? myRet : 27.7, day: community ? myDay : 1.1, isMe: true };
+  const metric = (f) => (RANK_SORT === 'day' ? (f.day || 0) : f.ret);
+  const list = [...fr, me].sort((a, b) => metric(b) - metric(a));
   const medal = ['#F7B500', '#9AA5B1', '#CD8B5B'];
+  const sortChip = (key, label) => clk(() => { RANK_SORT = key; render(); }, { display: 'flex', alignItems: 'center', padding: '6px 13px', borderRadius: 9, background: RANK_SORT === key ? C.t1 : C.bg },
+    txt(label, { fontSize: 12.5, fontWeight: 700, color: RANK_SORT === key ? '#fff' : C.t2 }));
   return col({ padding: '4px 16px 28px' },
     col({ padding: '14px 4px 8px', gap: 4 },
       txt('수익률 랭킹', { fontSize: 22, fontWeight: 800, color: C.t1 }),
       txt(community ? '팔로우한 친구 ' + fr.length + '명과 비교' : '이번 달 · 친구 ' + friends().length + '명과 비교', { fontSize: 13, fontWeight: 500, color: C.t3 })),
-    col({ gap: 8, marginTop: 8 },
+    el('div', { style: { background: C.bg, borderRadius: 16, padding: '10px 8px 6px', margin: '4px 0 10px' } },
+      txt('누적 수익률 비교', { fontSize: 12, fontWeight: 700, color: C.t3, marginLeft: 6 }),
+      rankingChart(list)),
+    row({ gap: 7, padding: '4px 0 8px' }, sortChip('ret', '누적순'), sortChip('day', '일간순')),
+    col({ gap: 8 },
       ...list.map((f, k) => {
         const rank = k + 1;
+        const primary = RANK_SORT === 'day' ? { lbl: '오늘', v: f.day || 0 } : { lbl: '누적', v: f.ret };
+        const secondary = RANK_SORT === 'day' ? { lbl: '누적', v: f.ret } : { lbl: '오늘', v: f.day || 0 };
         return clk(f.isMe ? (() => {}) : (() => push('friend', f.id)),
           { display: 'flex', alignItems: 'center', gap: 13, padding: '13px 14px', borderRadius: 14, background: f.isMe ? C.tint : C.card, border: '1px solid ' + (f.isMe ? C.brand + '33' : C.line) },
           row({ justifyContent: 'center', width: 26, flex: 'none' },
@@ -519,7 +555,9 @@ function rankingScreen() {
               txt(f.name, { fontSize: 15, fontWeight: f.isMe ? 800 : 700, color: C.t1 }),
               f.isMe ? row({ background: C.brand, padding: '1px 7px', borderRadius: 6 }, txt('나', { fontSize: 10.5, fontWeight: 700, color: '#fff' })) : null),
             txt(f.isMe ? '내 포트폴리오' : '포트폴리오 공유중', { fontSize: 12, fontWeight: 500, color: C.t3 })),
-          txt(pct(f.ret), { fontSize: 17, fontWeight: 800, color: cc(f.ret), fontVariantNumeric: 'tabular-nums' }));
+          col({ alignItems: 'flex-end', gap: 1, flex: 'none' },
+            txt(primary.lbl + ' ' + pct(primary.v), { fontSize: 16, fontWeight: 800, color: cc(primary.v), fontVariantNumeric: 'tabular-nums' }),
+            txt(secondary.lbl + ' ' + pct(secondary.v), { fontSize: 11.5, fontWeight: 600, color: cc(secondary.v), fontVariantNumeric: 'tabular-nums' })));
       })));
 }
 
@@ -736,6 +774,16 @@ function applyDrafts() {
   loadPrices(); // 기존에 받아둔 시세 즉시 반영
 }
 
+// 기존 보유 종목을 검토화면에서 직접 편집(수량·평단·코드)
+function editHoldings() {
+  const h = loadUserHoldings() || [];
+  OCR_DRAFTS = h.map((x) => ({ name: x.name, y: x.y || null, usd: !!x.usd, shares: x.shares, avg: x.avg }));
+  if (!OCR_DRAFTS.length) OCR_DRAFTS = [{ name: '', y: null, usd: false, shares: 0, avg: 0 }];
+  OCR_STAGE = 'review'; OCR_FILE_SHARES = null; OCR_FILE_PRICE = null;
+  push('import');
+}
+function addBlankDraft() { OCR_DRAFTS.push({ name: '', y: null, usd: false, shares: 0, avg: 0 }); render(); }
+
 function importScreen() {
   if (OCR_STAGE === 'processing') {
     const pn = Math.round(OCR_PROGRESS * 100);
@@ -799,7 +847,9 @@ function reviewScreen() {
     el('div', { style: { padding: '12px 20px', background: '#FFF7E6' } },
       txt('종목명·수량·평단가만 확인하고 잘못된 값은 고쳐주세요. 수익률·평가액은 실시간 시세로 자동 계산돼요.', { fontSize: 12.5, fontWeight: 500, color: '#9A6700', lineHeight: 1.4 })),
     el('div', { class: 'scrn', style: { flex: 1, padding: '12px 16px' } },
-      ...OCR_DRAFTS.map((d, i) => draftCard(d, i))),
+      ...OCR_DRAFTS.map((d, i) => draftCard(d, i)),
+      clk(addBlankDraft, { display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 6, padding: '13px 0', borderRadius: 12, border: '1.5px dashed ' + C.line, marginBottom: 8 },
+        txt('+ 종목 직접 추가', { fontSize: 14, fontWeight: 700, color: C.t2 }))),
     el('div', { style: { padding: '10px 16px max(10px, env(safe-area-inset-bottom))', borderTop: '1px solid ' + C.line, display: 'flex', gap: 10 } },
       clk(() => { OCR_STAGE = 'pick'; render(); }, { flex: 1, display: 'flex', justifyContent: 'center', padding: '14px 0', borderRadius: 12, background: C.bg }, txt('다시 선택', { fontSize: 15, fontWeight: 700, color: C.t2 })),
       clk(applyDrafts, { flex: 2, display: 'flex', justifyContent: 'center', padding: '14px 0', borderRadius: 12, background: C.brand }, txt(OCR_DRAFTS.filter((d) => d.name && d.shares > 0 && d.avg > 0).length + '개 적용하기', { fontSize: 15, fontWeight: 700, color: '#fff' }))));
@@ -822,28 +872,61 @@ function normSymbol(v) {
   return v;
 }
 
+// 내장 사전에서 종목 검색 (이름/별칭/심볼)
+function searchStocks(q) {
+  q = (q || '').toLowerCase().replace(/\s/g, '');
+  if (!q) return [];
+  const list = window.STOCKS || [];
+  return list.filter(function (s) {
+    const hay = (s.name + (s.aliases || []).join('') + (s.y || '')).toLowerCase().replace(/\s/g, '');
+    return hay.includes(q);
+  }).slice(0, 6);
+}
+
+// 종목 연동 검색창 (이름으로 검색해서 선택, 없으면 코드 직접)
+function stockSearch(d) {
+  const setLink = (y, name) => { d.y = y; if (name) d.name = name; d.usd = !!(y && !/\.K[SQ]$/i.test(y)); d._q = ''; render(); };
+  const results = el('div', { style: { display: 'flex', flexDirection: 'column', gap: 4, marginTop: 6 } });
+  const fill = () => {
+    results.replaceChildren();
+    const q = (d._q || '').trim();
+    if (!q) return;
+    const matches = searchStocks(q);
+    matches.forEach((s) => {
+      results.append(clk(() => setLink(s.y, s.name), { display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', borderRadius: 8, background: C.bg },
+        txt(s.name, { fontSize: 13, fontWeight: 700, color: C.t1, flex: 1 }),
+        txt(s.y || '심볼없음', { fontSize: 11.5, fontWeight: 600, color: C.t3 })));
+    });
+    const sym = normSymbol(q);
+    if (sym && !matches.find((m) => m.y === sym)) {
+      results.append(clk(() => setLink(sym), { display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', borderRadius: 8, background: C.tint },
+        txt('코드로 직접 연동', { fontSize: 13, fontWeight: 700, color: C.brand, flex: 1 }), txt(sym, { fontSize: 11.5, fontWeight: 700, color: C.brand })));
+    }
+  };
+  const inp = el('input', {
+    type: 'text', value: d._q || '', placeholder: '종목명 또는 코드로 검색 (예: 삼성전자, 005930)',
+    style: { width: '100%', border: '1px solid ' + C.line, borderRadius: 8, padding: '8px 10px', fontSize: 13, fontWeight: 600, color: C.t1, fontFamily: 'inherit', outline: 'none', background: '#fff' },
+  });
+  inp.addEventListener('input', () => { d._q = inp.value; fill(); });
+  fill();
+  return col({ gap: 0 }, inp, results);
+}
+
 function draftCard(d, i) {
   const nameInp = el('input', {
     type: 'text', value: d.name || '',
     style: { flex: 1, border: 'none', fontSize: 15, fontWeight: 700, color: C.t1, fontFamily: 'inherit', outline: 'none', background: 'transparent', minWidth: 0 },
   });
   nameInp.addEventListener('input', () => { d.name = nameInp.value; });
-
-  // 종목코드 수동 입력 (시세 미연동 종목용)
-  const codeInp = el('input', {
-    type: 'text', value: d.y || '', placeholder: '예: 005930, AAPL',
-    style: { flex: 1, border: '1px solid ' + C.line, borderRadius: 8, padding: '7px 10px', fontSize: 13, fontWeight: 600, color: C.t1, fontFamily: 'inherit', outline: 'none', background: '#fff', minWidth: 0 },
-  });
-  codeInp.addEventListener('input', () => { const s = normSymbol(codeInp.value); d.y = s; d.usd = !!(s && !/\.K[SQ]$/i.test(s)); });
-  codeInp.addEventListener('change', () => render());
+  const showSearch = !d.y || d._editLink;
 
   return col({ border: '1px solid ' + (d.name && d.shares > 0 && d.avg > 0 ? C.line : C.up), borderRadius: 14, padding: '12px 14px', marginBottom: 10, gap: 10 },
     row({ gap: 8 },
       el('div', { style: { width: 10, height: 10, borderRadius: 3, background: HOLDING_COLORS[i % HOLDING_COLORS.length], flex: 'none' } }),
       nameInp,
-      d.y
-        ? row({ background: C.tint, padding: '2px 7px', borderRadius: 6, flex: 'none' }, txt('시세연동', { fontSize: 10.5, fontWeight: 700, color: C.brand }))
-        : row({ background: '#FFF0E6', padding: '2px 7px', borderRadius: 6, flex: 'none' }, txt('시세 미연동', { fontSize: 10.5, fontWeight: 700, color: '#E8730C' })),
+      clk(() => { d._editLink = !d._editLink; render(); }, { display: 'flex', alignItems: 'center', gap: 3, background: d.y ? C.tint : '#FFF0E6', padding: '2px 7px', borderRadius: 6, flex: 'none' },
+        txt(d.y ? '시세연동' : '시세 미연동', { fontSize: 10.5, fontWeight: 700, color: d.y ? C.brand : '#E8730C' }),
+        icon('chev', 12, d.y ? C.brand : '#E8730C', 2.2)),
       clk(() => { OCR_DRAFTS.splice(i, 1); render(); }, { padding: 4, flex: 'none' }, txt('✕', { fontSize: 14, color: C.t4 }))),
     row({ gap: 8 },
       col({ flex: 1, gap: 3 }, txt('수량(주)', { fontSize: 11, fontWeight: 600, color: C.t3 }),
@@ -853,10 +936,10 @@ function draftCard(d, i) {
           const cleaned = v.replace(/[^\d.]/g, '');
           d.avg = d.usd ? (parseFloat(cleaned) || 0) : (parseInt(cleaned.replace(/\./g, ''), 10) || 0);
         }, { right: true }))),
-    !d.y
-      ? col({ gap: 4 },
-          txt('종목코드 직접 연동 (시세 받아오기)', { fontSize: 11, fontWeight: 600, color: '#E8730C' }),
-          codeInp)
+    showSearch
+      ? col({ gap: 5, padding: '4px 0 0' },
+          txt(d.y ? ('연동: ' + d.y + ' · 다른 종목으로 변경') : '시세 받아올 종목을 검색해 선택하세요', { fontSize: 11, fontWeight: 600, color: d.y ? C.t3 : '#E8730C' }),
+          stockSearch(d))
       : null);
 }
 
@@ -1050,19 +1133,24 @@ function adminScreen() {
 if (typeof window !== 'undefined') window.__ff = () => ({ stage: OCR_STAGE, drafts: OCR_DRAFTS, msg: OCR_MSG, raw: OCR_RAW, community: COMMUNITY, useCommunity: useCommunity() });
 
 /* ===================== Render ===================== */
+let _lastRenderKey = '';
 function render() {
   const A = window.Auth;
   const app = document.getElementById('app');
-  if (A && A.enabled && !A.ready) { app.replaceChildren(loadingScreen()); return; }
-  if (A && A.enabled && !A.user) { app.replaceChildren(loginScreen()); return; }
+  // 같은 화면 재렌더(정렬/숨김 토글 등) 시 스크롤 위치 유지
+  const prevScrn = app.querySelector('.scrn');
+  const prevScroll = prevScrn ? prevScrn.scrollTop : 0;
+  const renderKey = state.tab + '|' + state.view + '|' + (state.param || '');
+  if (A && A.enabled && !A.ready) { app.replaceChildren(loadingScreen()); _lastRenderKey = '#gate'; return; }
+  if (A && A.enabled && !A.user) { app.replaceChildren(loginScreen()); _lastRenderKey = '#gate'; return; }
   // 가입 승인 게이트
   // 로그인했으면(Auth.user) DB 승인 확정 전까지 아무것도 안 보여줌(데모 깜빡임 방지)
   const D = window.DB;
   if (D && D.enabled && A && A.user) {
-    if (!D.approvedReady || D.me !== A.user.uid) { app.replaceChildren(loadingScreen()); return; }
-    if (!D.approved) { app.replaceChildren(pendingScreen()); return; }
+    if (!D.approvedReady || D.me !== A.user.uid) { app.replaceChildren(loadingScreen()); _lastRenderKey = '#gate'; return; }
+    if (!D.approved) { app.replaceChildren(pendingScreen()); _lastRenderKey = '#gate'; return; }
   }
-  if (PENDING_INVITE) { app.replaceChildren(acceptScreen()); return; }
+  if (PENDING_INVITE) { app.replaceChildren(acceptScreen()); _lastRenderKey = '#gate'; return; }
 
   const port = buildPortfolio();
   let header = null, body = null;
@@ -1085,6 +1173,12 @@ function render() {
   }
   // import는 자체 하단 버튼/뒤로가기가 있으므로 탭바 숨김
   if (state.view !== 'import') app.append(tabBar());
+  // 같은 화면이면 스크롤 위치 복원 (정렬 등에서 상단 튐 방지)
+  if (renderKey === _lastRenderKey && prevScroll) {
+    const ns = app.querySelector('.scrn');
+    if (ns) ns.scrollTop = prevScroll;
+  }
+  _lastRenderKey = renderKey;
 }
 
 // 인증 상태가 바뀌면 다시 그린다.
