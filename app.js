@@ -116,8 +116,8 @@ function sortBy(port) {
 /* ===================== Formatting ===================== */
 const won = (n, hide) => hide ? '••••••' : '₩' + Math.round(n).toLocaleString('ko-KR');
 const swon = (n, hide) => hide ? '••••' : (n < 0 ? '-' : '+') + '₩' + Math.abs(Math.round(n)).toLocaleString('ko-KR');
-const pct = n => (n >= 0 ? '+' : '') + n.toFixed(1) + '%';
-const cc = n => n >= 0 ? C.up : C.down;
+const pct = n => { n = Number.isFinite(n) ? n : 0; return (n >= 0 ? '+' : '') + n.toFixed(1) + '%'; };
+const cc = n => (Number.isFinite(n) ? n : 0) >= 0 ? C.up : C.down;
 const price = s => s.ccy === '$' ? '$' + s.cur.toFixed(2) : s.cur.toLocaleString('ko-KR') + '원';
 const avgLabel = s => s.ccy === '$' ? '$' + (s.avg % 1 === 0 ? s.avg : s.avg.toFixed(2)) : s.avg.toLocaleString('ko-KR') + '원';
 
@@ -186,6 +186,7 @@ function icon(name, size = 24, color = C.t1, sw = 2) {
   else if (name === 'heart') { kids.push(p('M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.7l-1-1.1a5.5 5.5 0 0 0-7.8 7.8L12 21l8.8-8.6a5.5 5.5 0 0 0 0-7.8z')); }
   else if (name === 'msg') { kids.push(p('M21 11.5a8.4 8.4 0 0 1-11.9 7.6L3 21l1.9-6.1A8.4 8.4 0 1 1 21 11.5z')); }
   else if (name === 'star') { kids.push(el('polygon', { points: '12 2 15 8.6 22 9.4 17 14.2 18.3 21.2 12 17.8 5.7 21.2 7 14.2 2 9.4 9 8.6' })); }
+  else if (name === 'edit') { kids.push(p('M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7'), p('M18.5 2.5a2.12 2.12 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z')); }
   return el('svg', { width: size, height: size, viewBox: '0 0 24 24', fill: 'none', stroke: color, 'stroke-width': sw, 'stroke-linecap': 'round', 'stroke-linejoin': 'round' }, ...kids);
 }
 
@@ -406,7 +407,11 @@ function stockScreen(port) {
         txt(rw[1], { fontSize: 14.5, fontWeight: 700, color: C.t1, fontVariantNumeric: 'tabular-nums' }))),
       row({ justifyContent: 'space-between', padding: '12px 0 2px', marginTop: 6, borderTop: '2px solid ' + C.line },
         txt('평가 손익', { fontSize: 14, fontWeight: 700, color: C.t1 }),
-        txt(swon(s.pnl, state.hide) + ' (' + pct(s.ret) + ')', { fontSize: 15, fontWeight: 800, color: cc(s.ret), fontVariantNumeric: 'tabular-nums' }))));
+        txt(swon(s.pnl, state.hide) + ' (' + pct(s.ret) + ')', { fontSize: 15, fontWeight: 800, color: cc(s.ret), fontVariantNumeric: 'tabular-nums' }))),
+    loadUserHoldings()
+      ? clk(editHoldings, { display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7, margin: '14px 20px 0', padding: '14px 0', borderRadius: 14, border: '1.5px solid ' + C.line, background: C.card },
+          icon('edit', 17, C.t2, 2), txt('종목 정보 수정', { fontSize: 14.5, fontWeight: 700, color: C.t2 }))
+      : null);
 }
 
 function feedScreen() {
