@@ -494,26 +494,93 @@ function friendScreen() {
         txt(pct(x.r), { fontSize: 12.5, fontWeight: 600, color: cc(x.r) }))))));
 }
 
-// 랭킹 인원들의 누적 수익률 꺾은선 차트
-function rankingChart(people) {
-  const data = [...people].sort((a, b) => b.ret - a.ret);
-  const n = data.length;
-  if (!n) return null;
-  const w = 326, h = 132, padL = 10, padR = 10, padT = 16, padB = 24;
-  const rets = data.map((p) => p.ret);
-  let min = Math.min(0, ...rets), max = Math.max(0, ...rets);
-  if (max === min) max = min + 1;
-  const X = (i) => padL + (n <= 1 ? 0.5 : i / (n - 1)) * (w - padL - padR);
-  const Y = (v) => padT + (1 - (v - min) / (max - min)) * (h - padT - padB);
-  let line = '';
-  data.forEach((p, i) => { line += (i === 0 ? 'M' : 'L') + X(i).toFixed(1) + ' ' + Y(p.ret).toFixed(1) + ' '; });
+// 종목명 → 야후 심볼 (사전 매칭)
+function symbolForName(name) {
+  if (!name || !window.STOCKS) return null;
+  const n = name.replace(/\s/g, '').toLowerCase();
+  const m = window.STOCKS.find((s) => [s.name].concat(s.aliases || []).some((a) => a.replace(/\s/g, '').toLowerCase() === n));
+  return m ? m.y : null;
+}
+
+// 한 회원의 일별 누적수익률 시계열 (보유 비중 + 시세 히스토리로 계산). 없으면 null.
+function memberSeries(holds) {
+  const items = [];
+  (holds || []).forEach((h) => {
+    const name = h.n || h.name;
+    const sym = h.y || symbolForName(name);
+    const live = sym && LIVE[sym];
+    const closes = live && live.closes;
+    if (closes && closes.length > 1) items.push({ w: Math.abs((h.w != null ? h.w : h.weight) || 0), r: (h.r != null ? h.r : h.ret) || 0, closes });
+  });
+  if (!items.length) return null;
+  const N = Math.min.apply(null, [24].concat(items.map((it) => it.closes.length)));
+  if (N < 2) return null;
+  const totalW = items.reduce((s, it) => s + it.w, 0) || 1;
+  const out = [];
+  for (let d = 0; d < N; d++) {
+    let r = 0;
+    items.forEach((it) => {
+      const a = it.closes, L = a.length;
+      const last = a[L - 1], cd = a[L - N + d];
+      r += (it.w / totalW) * ((cd / last) * (1 + it.r / 100) - 1);
+    });
+    out.push(r * 100);
+  }
+  return out;
+}
+
+// 랭킹 인원들의 누적 수익률 멀티라인 차트 (x=날짜, 회원마다 선)
+function rankingChart(people, myHolds) {
+  const series = people.map((p) => ({ p, s: memberSeries(p.isMe ? myHolds : p.hold) }));
+  const withData = series.filter((x) => x.s && x.s.length > 1);
+  const w = 326, h = 150, padL = 8, padR = 8, padT = 14, padB = 30;
+
+  // 시세 히스토리가 없으면 현재 누적수익률만 점/선으로(폴백)
+  if (!withData.length) {
+    const data = [...people].sort((a, b) => b.ret - a.ret);
+    const n = data.length || 1;
+    const rets = data.map((p) => p.ret);
+    let mn = Math.min.apply(null, [0].concat(rets)), mx = Math.max.apply(null, [0].concat(rets));
+    if (mx === mn) mx = mn + 1;
+    const X = (i) => padL + (n <= 1 ? 0.5 : i / (n - 1)) * (w - padL - padR);
+    const Y = (v) => padT + (1 - (v - mn) / (mx - mn)) * (h - padT - padB);
+    let line = '';
+    data.forEach((p, i) => { line += (i === 0 ? 'M' : 'L') + X(i).toFixed(1) + ' ' + Y(p.ret).toFixed(1) + ' '; });
+    return col({ gap: 4 },
+      el('svg', { width: w, height: h, viewBox: '0 0 ' + w + ' ' + h, style: { width: '100%', height: h } },
+        el('path', { d: line, fill: 'none', stroke: C.brand, 'stroke-width': 2.5, 'stroke-linecap': 'round' }),
+        ...data.map((p, i) => el('circle', { cx: X(i), cy: Y(p.ret), r: p.isMe ? 5.5 : 4, fill: p.isMe ? C.brand : p.color, stroke: '#fff', 'stroke-width': 1.5 })),
+        ...data.map((p, i) => el('text', { x: X(i), y: h - 9, 'text-anchor': 'middle', 'font-size': 9.5, 'font-weight': 700, fill: p.isMe ? C.brand : C.t3 }, p.short))),
+      txt('일별 추이는 시세가 모이면 표시돼요', { fontSize: 10.5, color: C.t4, marginLeft: 6 }));
+  }
+
+  // 멀티라인 (각 회원 = 1선)
+  const N = Math.min.apply(null, withData.map((x) => x.s.length));
+  const norm = withData.map((x) => ({ p: x.p, s: x.s.slice(x.s.length - N) }));
+  let mn = 0, mx = 0;
+  norm.forEach((x) => x.s.forEach((v) => { if (v < mn) mn = v; if (v > mx) mx = v; }));
+  if (mx === mn) mx = mn + 1;
+  const X = (i) => padL + (N <= 1 ? 0.5 : i / (N - 1)) * (w - padL - padR);
+  const Y = (v) => padT + (1 - (v - mn) / (mx - mn)) * (h - padT - padB);
   const zeroY = Y(0);
-  return el('svg', { width: w, height: h, viewBox: '0 0 ' + w + ' ' + h, style: { width: '100%', height: h } },
-    el('line', { x1: 0, y1: zeroY, x2: w, y2: zeroY, stroke: C.line, 'stroke-width': 1, 'stroke-dasharray': '3 3' }),
-    el('path', { d: line, fill: 'none', stroke: C.brand, 'stroke-width': 2.5, 'stroke-linecap': 'round', 'stroke-linejoin': 'round' }),
-    ...data.map((p, i) => el('circle', { cx: X(i), cy: Y(p.ret), r: p.isMe ? 5.5 : 4, fill: p.isMe ? C.brand : p.color, stroke: '#fff', 'stroke-width': 1.5 })),
-    ...data.map((p, i) => el('text', { x: X(i), y: Y(p.ret) - 9, 'text-anchor': 'middle', 'font-size': 10, 'font-weight': 800, fill: cc(p.ret) }, pct(p.ret))),
-    ...data.map((p, i) => el('text', { x: X(i), y: h - 7, 'text-anchor': 'middle', 'font-size': 9.5, 'font-weight': 700, fill: p.isMe ? C.brand : C.t3 }, p.short)));
+  const lines = norm.map((x) => {
+    let d = '';
+    x.s.forEach((v, i) => { d += (i === 0 ? 'M' : 'L') + X(i).toFixed(1) + ' ' + Y(v).toFixed(1) + ' '; });
+    return el('path', { d: d, fill: 'none', stroke: x.p.isMe ? C.brand : x.p.color, 'stroke-width': x.p.isMe ? 3 : 2, 'stroke-linecap': 'round', 'stroke-linejoin': 'round', opacity: x.p.isMe ? 1 : 0.85 });
+  });
+  const endDots = norm.map((x) => el('circle', { cx: X(N - 1), cy: Y(x.s[x.s.length - 1]), r: x.p.isMe ? 4.5 : 3.5, fill: x.p.isMe ? C.brand : x.p.color, stroke: '#fff', 'stroke-width': 1.5 }));
+  const legend = row({ gap: 10, flexWrap: 'wrap', marginTop: 2, padding: '0 4px' },
+    ...norm.map((x) => row({ gap: 4 },
+      el('div', { style: { width: 8, height: 8, borderRadius: 4, background: x.p.isMe ? C.brand : x.p.color } }),
+      txt(x.p.isMe ? '나' : x.p.name, { fontSize: 10.5, fontWeight: 700, color: x.p.isMe ? C.brand : C.t2 }))));
+  return col({ gap: 2 },
+    el('svg', { width: w, height: h, viewBox: '0 0 ' + w + ' ' + h, style: { width: '100%', height: h } },
+      el('line', { x1: 0, y1: zeroY, x2: w, y2: zeroY, stroke: C.line, 'stroke-width': 1, 'stroke-dasharray': '3 3' }),
+      el('text', { x: 4, y: padT - 3, 'font-size': 9, 'font-weight': 600, fill: C.t4 }, '수익률 %'),
+      el('text', { x: padL, y: h - 8, 'font-size': 9, 'font-weight': 600, fill: C.t4 }, '약 1개월 전'),
+      el('text', { x: w - padR, y: h - 8, 'text-anchor': 'end', 'font-size': 9, 'font-weight': 600, fill: C.t4 }, '오늘'),
+      ...lines, ...endDots),
+    legend);
 }
 
 let RANK_SORT = 'ret'; // ret(누적) | day(일간)
@@ -536,7 +603,7 @@ function rankingScreen() {
       txt(community ? '팔로우한 친구 ' + fr.length + '명과 비교' : '이번 달 · 친구 ' + friends().length + '명과 비교', { fontSize: 13, fontWeight: 500, color: C.t3 })),
     el('div', { style: { background: C.bg, borderRadius: 16, padding: '10px 8px 6px', margin: '4px 0 10px' } },
       txt('누적 수익률 비교', { fontSize: 12, fontWeight: 700, color: C.t3, marginLeft: 6 }),
-      rankingChart(list)),
+      rankingChart(list, myP ? myP.holdings : [])),
     row({ gap: 7, padding: '4px 0 8px' }, sortChip('ret', '누적순'), sortChip('day', '일간순')),
     col({ gap: 8 },
       ...list.map((f, k) => {
@@ -931,7 +998,10 @@ function draftCard(d, i) {
     row({ gap: 8 },
       col({ flex: 1, gap: 3 }, txt('수량(주)', { fontSize: 11, fontWeight: 600, color: C.t3 }),
         numInput(d.shares, (v) => { d.shares = parseInt(v.replace(/[^\d]/g, ''), 10) || 0; })),
-      col({ flex: 1.4, gap: 3 }, txt(d.usd ? '평단가($)' : '평단가(원)', { fontSize: 11, fontWeight: 600, color: C.t3 }),
+      col({ flex: 1.4, gap: 3 },
+        clk(() => { d.usd = !d.usd; render(); }, { display: 'flex', alignItems: 'center', gap: 4 },
+          txt(d.usd ? '평단가($)' : '평단가(원)', { fontSize: 11, fontWeight: 600, color: C.t3 }),
+          txt('통화변경', { fontSize: 10, fontWeight: 700, color: C.brand, background: C.tint, padding: '1px 5px', borderRadius: 5 })),
         numInput(d.avg, (v) => {
           const cleaned = v.replace(/[^\d.]/g, '');
           d.avg = d.usd ? (parseFloat(cleaned) || 0) : (parseInt(cleaned.replace(/\./g, ''), 10) || 0);
