@@ -279,6 +279,16 @@ function homeB(port) {
   const segs = port.holdings.map(s => ({ w: s.weight, color: s.color }));
   const sorted = sortBy(port);
   const chips = [['value', '평가액'], ['pnl', '총수익'], ['ret', '총수익률'], ['dayPnl', '일간수익'], ['day', '일간수익률']];
+  // 다크 히어로 카드용 색/요소
+  const ccd = (v) => (v >= 0 ? '#FF7A80' : '#7DB0FF');
+  const pillD = (label, value, color) => row({ gap: 6, background: 'rgba(255,255,255,0.1)', padding: '7px 12px', borderRadius: 10 },
+    txt(label, { fontSize: 12, fontWeight: 600, color: 'rgba(255,255,255,0.72)' }), txt(value, { fontSize: 13, fontWeight: 800, color }));
+  const liveD = (() => {
+    if (!LIVE_UPDATED) return el('div', { style: { height: 4 } });
+    const dt = new Date(LIVE_UPDATED), hh = String(dt.getHours()).padStart(2, '0'), mm = String(dt.getMinutes()).padStart(2, '0');
+    return row({ gap: 5, marginTop: 9 }, el('div', { style: { width: 6, height: 6, borderRadius: 3, background: '#34D399' } }),
+      txt('실시간 시세 · ' + hh + ':' + mm + ' 기준', { fontSize: 11, fontWeight: 600, color: 'rgba(255,255,255,0.55)' }));
+  })();
   return col({ padding: '10px 20px 28px', background: C.card, minHeight: '100%' },
     row({ justifyContent: 'space-between', padding: '2px 0 18px' },
       txt('내 자산', { fontSize: 18, fontWeight: 800, color: C.t1, whiteSpace: 'nowrap' }),
@@ -289,24 +299,24 @@ function homeB(port) {
           txt(ADMIN.pending.length ? ('가입 승인 대기 ' + ADMIN.pending.length + '명') : '가입 승인 관리', { fontSize: 13.5, fontWeight: 700, color: C.t1 }),
           el('div', { style: { flex: 1 } }), icon('chev', 16, ADMIN.pending.length ? C.up : C.t4, 2))
       : null,
-    txt('총 자산', { fontSize: 13, fontWeight: 600, color: C.t3, marginBottom: 8 }),
-    txt(won(port.total, state.hide), { fontSize: 34, fontWeight: 800, color: C.t1, letterSpacing: -0.8, fontVariantNumeric: 'tabular-nums' }),
-    row({ gap: 8, marginTop: 14 },
-      pill('오늘', pct(port.dayPct), cc(port.dayPct)),
-      pill('총 수익', pct(port.ret), cc(port.ret))),
-    liveStamp() || el('div', { style: { height: 4 } }),
-    el('div', { style: { height: 14 } }),
-    divider(),
-    row({ padding: '14px 0', alignItems: 'stretch' },
-      col({ flex: 1, gap: 6, minWidth: 0 },
-        txt('오늘 수익', { fontSize: 13, fontWeight: 600, color: C.t3 }),
-        txt(swon(port.dayPnl, state.hide), { fontSize: 17, fontWeight: 800, color: cc(port.dayPct), fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' })),
-      el('div', { style: { width: 1, background: C.line, margin: '2px 16px' } }),
-      col({ flex: 1, gap: 6, minWidth: 0 },
-        txt('총 평가손익', { fontSize: 13, fontWeight: 600, color: C.t3 }),
-        txt(swon(port.pnl, state.hide), { fontSize: 17, fontWeight: 800, color: cc(port.ret), fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }))),
-    divider(),
-    col({ padding: '16px 0' },
+    // 총 자산 히어로 카드
+    el('div', { style: { background: 'linear-gradient(160deg, #232E48 0%, #2E3F63 100%)', borderRadius: 20, padding: '20px 20px 18px', marginBottom: 18, boxShadow: '0 10px 24px -12px rgba(35,46,72,0.5)' } },
+      txt('총 자산', { fontSize: 13, fontWeight: 600, color: 'rgba(255,255,255,0.65)' }),
+      el('div', { style: { height: 7 } }),
+      txt(won(port.total, state.hide), { fontSize: 33, fontWeight: 800, color: '#fff', letterSpacing: -0.8, fontVariantNumeric: 'tabular-nums' }),
+      liveD,
+      row({ gap: 8, marginTop: 14 }, pillD('오늘', pct(port.dayPct), ccd(port.dayPct)), pillD('총 수익', pct(port.ret), ccd(port.ret))),
+      el('div', { style: { height: 16 } }),
+      el('div', { style: { height: 1, background: 'rgba(255,255,255,0.12)' } }),
+      row({ padding: '14px 0 0', alignItems: 'stretch' },
+        col({ flex: 1, gap: 5, minWidth: 0 },
+          txt('오늘 수익', { fontSize: 12.5, fontWeight: 600, color: 'rgba(255,255,255,0.6)' }),
+          txt(swon(port.dayPnl, state.hide), { fontSize: 16, fontWeight: 800, color: ccd(port.dayPct), fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' })),
+        el('div', { style: { width: 1, background: 'rgba(255,255,255,0.12)', margin: '2px 14px' } }),
+        col({ flex: 1, gap: 5, minWidth: 0 },
+          txt('총 평가손익', { fontSize: 12.5, fontWeight: 600, color: 'rgba(255,255,255,0.6)' }),
+          txt(swon(port.pnl, state.hide), { fontSize: 16, fontWeight: 800, color: ccd(port.ret), fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' })))),
+    col({ padding: '2px 0 16px' },
       sectionTitle('자산 비중'),
       el('div', { style: { height: 14 } }),
       stackBar(segs, 12, 6),
