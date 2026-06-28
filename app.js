@@ -590,7 +590,7 @@ function rankingScreen() {
   const myP = (() => { try { return buildPortfolio(); } catch (e) { return null; } })();
   const myRet = myP ? Math.round(myP.ret * 10) / 10 : 27.7;
   const myDay = myP ? Math.round(myP.dayPct * 10) / 10 : 0;
-  const myName = (window.Auth && window.Auth.user && (window.Auth.user.name || '나')) || '나 (지훈)';
+  const myName = (window.DB && window.DB.profileName) || (window.Auth && window.Auth.user && window.Auth.user.name) || '나 (지훈)';
   const me = { id: 'me', name: community ? myName : '나 (지훈)', short: (myName.replace(/\s*\(.*\)\s*/, '').replace(/\s/g, '').slice(0, 2)) || '나', color: C.brand, ret: community ? myRet : 27.7, day: community ? myDay : 1.1, isMe: true };
   const metric = (f) => (RANK_SORT === 'day' ? (f.day || 0) : f.ret);
   const list = [...fr, me].sort((a, b) => metric(b) - metric(a));
@@ -665,18 +665,26 @@ function googleBtn() {
 }
 
 function loginScreen() {
-  return col({ height: '100%', justifyContent: 'center', padding: '0 28px', background: C.card },
-    col({ alignItems: 'center' },
-      row({ justifyContent: 'center', width: 76, height: 76, borderRadius: 22, background: C.brand, marginBottom: 24 }, icon('bars', 40, '#fff', 2.4)),
-      txt('FolioFriends', { fontSize: 27, fontWeight: 800, color: C.t1, letterSpacing: -0.5 }),
-      el('div', { style: { height: 12 } }),
-      txt('친구들과 포트폴리오를 공유하고', { fontSize: 15, fontWeight: 500, color: C.t3 }),
-      txt('내 자산과 수익률을 한눈에', { fontSize: 15, fontWeight: 500, color: C.t3 })),
-    el('div', { style: { height: 44 } }),
-    googleBtn(),
-    el('div', { style: { height: 14 } }),
-    el('div', { style: { textAlign: 'center' } },
-      txt('로그인하면 서비스 이용약관에 동의하게 됩니다', { fontSize: 12, fontWeight: 500, color: C.t4 })));
+  const feature = (emoji, title, sub) => row({ gap: 13, padding: '11px 2px', alignItems: 'center' },
+    row({ justifyContent: 'center', width: 44, height: 44, borderRadius: 13, background: C.tint, flex: 'none' }, txt(emoji, { fontSize: 21 })),
+    col({ flex: 1, gap: 2, minWidth: 0 },
+      txt(title, { fontSize: 14.5, fontWeight: 700, color: C.t1 }),
+      txt(sub, { fontSize: 12.5, fontWeight: 500, color: C.t3 })));
+  return col({ flex: 1, minHeight: 0, background: C.card },
+    el('div', { class: 'scrn', style: { flex: 1 } },
+      col({ alignItems: 'center', padding: '64px 28px 40px', background: 'linear-gradient(165deg, #3182F6 0%, #1E5FD0 100%)' },
+        row({ justifyContent: 'center', width: 74, height: 74, borderRadius: 22, background: 'rgba(255,255,255,0.18)', marginBottom: 18 }, icon('bars', 38, '#fff', 2.4)),
+        txt('FolioFriends', { fontSize: 28, fontWeight: 800, color: '#fff', letterSpacing: -0.5 }),
+        el('div', { style: { height: 12 } }),
+        txt('친구들과 비중·수익률만 공유하는', { fontSize: 14, fontWeight: 500, color: 'rgba(255,255,255,0.92)' }),
+        txt('스마트 주식 포트폴리오', { fontSize: 14, fontWeight: 500, color: 'rgba(255,255,255,0.92)' })),
+      col({ padding: '26px 26px 10px', gap: 4 },
+        feature('📸', '스크린샷으로 자동 입력', '증권 앱 화면만 올리면 종목·수량·평단가 인식'),
+        feature('📈', '실시간 수익률 · 차트', '일간·누적 수익률과 종목별 차트를 한눈에'),
+        feature('👥', '친구와 비교', '초대한 친구끼리 비중·수익률만 공유 (금액 비공개)'))),
+    col({ padding: '12px 24px max(20px, env(safe-area-inset-bottom))', gap: 10, borderTop: '1px solid ' + C.line },
+      googleBtn(),
+      txt('로그인하면 서비스 이용약관에 동의하게 됩니다', { fontSize: 11.5, fontWeight: 500, color: C.t4, textAlign: 'center' })));
 }
 
 function loadingScreen() {
@@ -694,9 +702,37 @@ function profileBtn() {
   const inner = u.photo
     ? el('img', { src: u.photo, referrerpolicy: 'no-referrer', width: 36, height: 36, style: { width: 36, height: 36, objectFit: 'cover' } })
     : txt((u.name || u.email || 'U')[0].toUpperCase(), { fontSize: 15, fontWeight: 700, color: C.t2 });
-  return clk(() => { if (confirm('로그인 계정: ' + (u.email || u.name) + '\n\n로그아웃 하시겠어요?')) A.signOut(); },
+  return clk(() => push('profile'),
     { width: 36, height: 36, borderRadius: 18, overflow: 'hidden', background: C.bg, display: 'flex', alignItems: 'center', justifyContent: 'center', flex: 'none' },
     inner);
+}
+
+function profileScreen() {
+  const A = window.Auth, u = (A && A.user) || {};
+  const cur = (window.DB && window.DB.profileName) || u.name || '';
+  const nickInp = el('input', {
+    type: 'text', value: cur, placeholder: '닉네임',
+    style: { width: '100%', border: '1px solid ' + C.line, borderRadius: 12, padding: '13px 14px', fontSize: 15, fontWeight: 600, color: C.t1, fontFamily: 'inherit', outline: 'none', background: '#fff' },
+  });
+  return col({ flex: 1, minHeight: 0, padding: '24px 20px max(20px, env(safe-area-inset-bottom))' },
+    col({ flex: 1, minHeight: 0 },
+      col({ alignItems: 'center', gap: 8, marginBottom: 24 },
+        u.photo
+          ? el('img', { src: u.photo, referrerpolicy: 'no-referrer', width: 72, height: 72, style: { width: 72, height: 72, borderRadius: 36, objectFit: 'cover' } })
+          : avatar((cur || 'U').slice(0, 2), C.brand, 72),
+        txt(u.email || '', { fontSize: 13, fontWeight: 500, color: C.t3 })),
+      txt('닉네임', { fontSize: 13, fontWeight: 700, color: C.t2, marginBottom: 6 }),
+      nickInp,
+      txt('본명 대신 친구들에게 표시될 이름이에요', { fontSize: 12, fontWeight: 500, color: C.t4, marginTop: 6 }),
+      clk(() => {
+        const v = nickInp.value.trim();
+        if (!v) { alert('닉네임을 입력해주세요'); return; }
+        if (window.DB && window.DB.setNickname) window.DB.setNickname(v).then(function () { alert('닉네임이 변경됐어요'); history.back(); });
+      }, { display: 'flex', justifyContent: 'center', padding: '14px 0', borderRadius: 12, background: C.brand, marginTop: 16 },
+        txt('저장', { fontSize: 15, fontWeight: 700, color: '#fff' }))),
+    clk(() => { if (confirm('로그아웃 하시겠어요?')) A.signOut(); },
+      { display: 'flex', justifyContent: 'center', padding: '14px 0', borderRadius: 12, background: C.bg },
+      txt('로그아웃', { fontSize: 15, fontWeight: 700, color: C.t2 })));
 }
 
 /* ===================== OCR 스크린샷 가져오기 ===================== */
@@ -1233,10 +1269,11 @@ function render() {
   else if (state.view === 'import') { header = backHeader('스크린샷 가져오기'); body = importScreen(); }
   else if (state.view === 'invite') { header = backHeader('친구'); body = inviteScreen(); }
   else if (state.view === 'admin') { header = backHeader('가입 승인'); body = adminScreen(); }
+  else if (state.view === 'profile') { header = backHeader('내 프로필'); body = profileScreen(); }
 
   app.replaceChildren();
   if (header) app.append(header);
-  if (state.view === 'import' || state.view === 'invite' || state.view === 'admin') {
+  if (state.view === 'import' || state.view === 'invite' || state.view === 'admin' || state.view === 'profile') {
     app.append(body); // 자체 레이아웃/스크롤 관리
   } else {
     app.append(el('div', { class: 'scrn' }, body));

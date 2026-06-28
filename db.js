@@ -23,8 +23,8 @@
 
   const DB = {
     enabled: false, me: null, onAuth: null,
-    isAdmin: false, approved: false, approvedReady: false,
-    syncProfile, saveHoldings, loadHoldings, saveShared, getShared,
+    isAdmin: false, approved: false, approvedReady: false, profileName: null,
+    syncProfile, setNickname, saveHoldings, loadHoldings, saveShared, getShared,
     createInvite, getInvite, acceptInvite, watchFriends, unfriend, getUser,
     approveUser, rejectUser, watchPending, addSymbols,
   };
@@ -47,12 +47,17 @@
     if (_approvedRef) { _approvedRef.off(); _approvedRef = null; }
     if (!u) { DB.approved = false; DB.approvedReady = true; if (DB.onAuth) DB.onAuth(null); return; }
 
-    // 프로필 동기화 + (소유자 자동승인 / 신규 가입이면 텔레그램 알림)
+    // 프로필 동기화 — 닉네임(name)은 한번 설정하면 유지(로그인 때 본명으로 덮어쓰지 않음)
     db.ref('users/' + u.uid).get().then(function (snap) {
       const isNew = !snap.exists();
-      syncProfile({ name: u.displayName, photo: u.photoURL });
+      const existing = snap.val() || {};
+      DB.profileName = existing.name || u.displayName || '사용자';
+      const upd = { photo: u.photoURL || null, updatedAt: firebase.database.ServerValue.TIMESTAMP };
+      if (isNew) upd.name = u.displayName || '사용자';
+      db.ref('users/' + u.uid).update(upd);
       if (DB.isAdmin) db.ref('approved/' + u.uid).set(true);
       else if (isNew) notifyNewUser(u);
+      if (DB.onAuth) DB.onAuth(DB.me);
     }).catch(function () {});
 
     // 승인 상태 실시간 구독 → 미승인이면 앱 게이트가 막음
@@ -119,9 +124,16 @@
   function syncProfile(p) {
     if (!DB.me) return Promise.resolve();
     return db.ref('users/' + DB.me).update({
-      name: p.name || '익명', photo: p.photo || null,
+      photo: p.photo || null,
       updatedAt: firebase.database.ServerValue.TIMESTAMP,
     });
+  }
+
+  // 닉네임 설정 (본명 대신 표시)
+  function setNickname(nick) {
+    if (!DB.me || !nick) return Promise.resolve();
+    DB.profileName = nick;
+    return db.ref('users/' + DB.me).update({ name: nick });
   }
 
   function saveHoldings(holdings) {
