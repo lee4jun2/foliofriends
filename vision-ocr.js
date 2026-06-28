@@ -47,7 +47,7 @@
       const url = URL.createObjectURL(file);
       img.onload = function () {
         URL.revokeObjectURL(url);
-        const max = 1600;
+        const max = 2048;
         let w = img.naturalWidth, h = img.naturalHeight;
         const scale = Math.min(1, max / Math.max(w, h));
         w = Math.round(w * scale); h = Math.round(h * scale);
@@ -62,24 +62,22 @@
     });
   }
 
+  // 화면 한 장에서 "보이는 값만" 추출하는 프롬프트(병합은 코드가 함 → 훨씬 정확).
   const PROMPT = [
-    '이 이미지들은 한국 증권 앱(예: 도미노/토스 등)의 보유 종목 화면 스크린샷이다.',
-    '각 보유 종목에 대해 다음을 정확히 추출해라:',
-    '- name: 종목명 (한국 주식은 한글명, 미국 주식은 영문명. 예: 삼성전자, NVIDIA, Tesla)',
-    '- shares: 보유 수량(주식 수). 정수 또는 소수.',
-    '- avg: 평균 단가(평단가, 1주당 매입 평균가격). 현재가가 아니라 "평단가"여야 한다.',
-    '- currency: 평단가의 통화. "$" 또는 달러 표기가 있으면 "USD", 원/₩ 표기면 "KRW".',
-    '- market: 거래소. 한국 주식이면 "KR", 미국 주식이면 "US".',
-    '- ticker: 실시간 시세 조회용 종목 코드(네가 아는 지식으로 채워라).',
-    '    · 미국 주식: 티커 심볼 (예: NVIDIA→NVDA, Tesla→TSLA, Apple→AAPL)',
-    '    · 한국 주식: 6자리 숫자 종목코드 (예: 삼성전자→005930, 카카오→035720, 에코프로비엠→247540)',
-    '    · 확실하지 않으면 빈 문자열로 둬라(추측 금지).',
-    '',
-    '이미지가 2장이면 한 장은 수량(평가 탭), 한 장은 평단가(시세 탭)일 수 있다.',
-    '같은 종목명끼리 짝지어 하나로 병합해라.',
-    '현금/총자산/예수금/합계/요약 같은 줄은 종목이 아니므로 제외해라.',
-    'avg나 shares를 못 읽으면 그 값은 0으로 둬라(종목은 그대로 포함).',
-    'JSON 배열로만 답하라.',
+    '이 이미지는 한국 증권 앱(도미노/토스 등)의 보유 종목 목록 화면 한 장이다.',
+    '화면에 보이는 모든 보유 종목을 하나도 빠짐없이 추출해라.',
+    '(좌 단위 펀드·MMF도 포함. 단 현금/예수금/총자산/합계/요약 줄은 제외.)',
+    '각 종목 행에서 그 화면에 "실제로 보이는 값만" 채워라(안 보이면 비워둬라):',
+    '- name: 종목명 그대로 (예: 삼성전자, SK하이닉스, NVDA, TIGER 미국S&P500)',
+    '- market: 한국 종목 "KR", 미국 종목 "US"',
+    '- ticker: 시세조회용 코드(네 지식으로). 미국=티커(NVDA,TSLA,AAPL), 한국=6자리코드(삼성전자 005930). 모르면 빈 문자열.',
+    '- shares: 종목명 바로 아래의 "N주" 또는 "N좌" 수량 (보일 때만)',
+    '- avg: 종목명 바로 아래의 작은 글씨 "평단가"(매입평균가). 우측의 큰 현재가가 절대 아니다 (보일 때만)',
+    '- currency: 가격이 $면 "USD", 원이면 "KRW"',
+    '- evalAmount: 우측의 큰 "평가금액"(원 단위 정수) (보일 때만)',
+    '- profitPct: 우측 괄호 안 수익률 %(부호 포함, 예 -10.44) (보일 때만)',
+    '숫자는 한 자리씩 또박또박 정확히 읽어라. 비슷한 숫자(1/4/7, 0/6/9) 혼동 금지.',
+    '어떤 종목 행도 빠뜨리지 마라. JSON 배열로만 답하라.',
   ].join('\n');
 
   const SCHEMA = {
@@ -88,13 +86,15 @@
       type: 'OBJECT',
       properties: {
         name: { type: 'STRING' },
+        market: { type: 'STRING', enum: ['KR', 'US'] },
+        ticker: { type: 'STRING' },
         shares: { type: 'NUMBER' },
         avg: { type: 'NUMBER' },
         currency: { type: 'STRING', enum: ['KRW', 'USD'] },
-        market: { type: 'STRING', enum: ['KR', 'US'] },
-        ticker: { type: 'STRING' },
+        evalAmount: { type: 'NUMBER' },
+        profitPct: { type: 'NUMBER' },
       },
-      required: ['name', 'shares', 'avg', 'currency'],
+      required: ['name'],
     },
   };
 
@@ -112,31 +112,12 @@
     return /^[A-Z][A-Z.\-]{0,5}$/.test(ticker) ? ticker : null; // 미국 티커
   }
 
-  // files: File[]  (1~2장)
-  async function visionExtract(files, onProgress) {
-    const key = apiKey();
-    if (!key) throw new Error('Gemini 키가 없어요');
-    // 과금 방지 가드 — 한도 초과/너무 잦은 호출이면 호출 자체를 막는다.
-    const u = _usage();
-    if (u.count >= PER_USER_CAP) throw _capError('오늘 내 AI 분석 한도(' + PER_USER_CAP + '회)에 도달했어요. 내일 다시 시도하거나 직접 입력해 주세요.', 'DAILY_CAP');
-    const now = Date.now();
-    if (u.last && now - u.last < MIN_GAP_MS) throw _capError('너무 빨라요. 잠시 후 다시 시도해 주세요.', 'TOO_FAST');
-    // 전체 유저 합산 한도를 Firebase에서 원자적으로 예약(권위 있는 차단).
-    if (window.DB && window.DB.reserveGeminiCall) {
-      const r = await window.DB.reserveGeminiCall(GLOBAL_CAP);
-      if (!r.ok) throw _capError('오늘 전체 AI 분석 한도에 도달했어요. 내일 다시 시도하거나 직접 입력해 주세요.', 'DAILY_CAP');
-    }
-    // 네트워크 호출 전에 유저 카운트를 올린다(실패해도 차감 — 가장 보수적).
-    u.count += 1; u.last = now; _save(u);
-    if (onProgress) onProgress('이미지 준비 중…');
-    const parts = [{ text: PROMPT }];
-    for (const f of files) {
-      const b64 = await fileToBase64(f);
-      parts.push({ inline_data: { mime_type: 'image/jpeg', data: b64 } });
-    }
-    if (onProgress) onProgress('AI가 종목을 읽고 있어요…');
+  const _n = (v) => { const x = Number(v); return Number.isFinite(x) ? x : 0; };
+
+  // 이미지 한 장 → Gemini 호출 → 행 배열
+  async function callOne(key, b64) {
     const body = {
-      contents: [{ parts: parts }],
+      contents: [{ parts: [{ text: PROMPT }, { inline_data: { mime_type: 'image/jpeg', data: b64 } }] }],
       generationConfig: { temperature: 0, responseMimeType: 'application/json', responseSchema: SCHEMA },
     };
     const res = await fetch(ENDPOINT(key), {
@@ -148,32 +129,74 @@
       throw new Error('Gemini 호출 실패: ' + msg);
     }
     const json = await res.json();
-    const text = json && json.candidates && json.candidates[0] &&
-      json.candidates[0].content && json.candidates[0].content.parts &&
-      json.candidates[0].content.parts[0] && json.candidates[0].content.parts[0].text;
-    if (!text) throw new Error('응답이 비었어요');
-    let rows;
-    try { rows = JSON.parse(text); } catch (e) { throw new Error('응답 파싱 실패'); }
-    if (!Array.isArray(rows)) throw new Error('형식이 올바르지 않아요');
-    return toDrafts(rows);
+    const text = json && json.candidates && json.candidates[0] && json.candidates[0].content &&
+      json.candidates[0].content.parts && json.candidates[0].content.parts[0] && json.candidates[0].content.parts[0].text;
+    if (!text) return [];
+    let rows; try { rows = JSON.parse(text); } catch (e) { return []; }
+    return Array.isArray(rows) ? rows : [];
   }
 
-  // Gemini 결과 → OCR_DRAFTS 형식. 종목명은 사전 매칭으로 야후 심볼(y) 보정.
-  function toDrafts(rows) {
-    const out = [];
+  // files: File[] (여러 장). 화면별로 따로 추출 후 코드로 이름 기준 병합.
+  async function visionExtract(files, onProgress) {
+    const key = apiKey();
+    if (!key) throw new Error('Gemini 키가 없어요');
+    const u0 = _usage();
+    if (u0.last && Date.now() - u0.last < MIN_GAP_MS) throw _capError('너무 빨라요. 잠시 후 다시 시도해 주세요.', 'TOO_FAST');
+
+    const allRows = [];
+    for (let i = 0; i < files.length; i++) {
+      // 과금 방지: 이미지(=호출) 1건마다 한도 검사/예약
+      const u = _usage();
+      if (u.count >= PER_USER_CAP) throw _capError('오늘 내 AI 분석 한도(' + PER_USER_CAP + '회)에 도달했어요. 내일 다시 시도하거나 직접 입력해 주세요.', 'DAILY_CAP');
+      if (window.DB && window.DB.reserveGeminiCall) {
+        const r = await window.DB.reserveGeminiCall(GLOBAL_CAP);
+        if (!r.ok) throw _capError('오늘 전체 AI 분석 한도에 도달했어요. 내일 다시 시도하거나 직접 입력해 주세요.', 'DAILY_CAP');
+      }
+      u.count += 1; u.last = Date.now(); _save(u);
+      if (onProgress) onProgress(files.length > 1 ? ('화면 ' + (i + 1) + '/' + files.length + ' 읽는 중…') : 'AI가 종목을 읽고 있어요…');
+      const b64 = await fileToBase64(files[i]);
+      const rows = await callOne(key, b64);
+      for (const r of rows) allRows.push(r);
+    }
+    return mergeRows(allRows);
+  }
+
+  // 여러 화면의 행들을 종목명 기준으로 병합 → OCR_DRAFTS 형식.
+  function mergeRows(rows) {
+    const norm = (s) => (s || '').toLowerCase().replace(/[^a-z0-9가-힣]/g, '');
+    const by = new Map();
     rows.forEach(function (r) {
-      const rawName = (r.name || '').trim();
-      if (!rawName) return;
-      const usd = String(r.currency).toUpperCase() === 'USD' || String(r.market).toUpperCase() === 'US';
-      const norm = (typeof window.normalizeName === 'function') ? window.normalizeName(rawName) : { name: rawName, y: null };
-      const shares = Number(r.shares);
-      const avg = Number(r.avg);
+      const nm = (r.name || '').trim();
+      if (!nm) return;
+      const k = norm(nm);
+      if (!k) return;
+      let e = by.get(k);
+      if (!e) { e = { name: nm, market: '', ticker: '', shares: 0, avg: 0, currency: '', evalAmount: 0, profitPct: null }; by.set(k, e); }
+      if (_n(r.shares) > 0) e.shares = _n(r.shares);
+      if (_n(r.avg) > 0) { e.avg = _n(r.avg); if (r.currency) e.currency = String(r.currency).toUpperCase(); }
+      if (_n(r.evalAmount) > 0) e.evalAmount = _n(r.evalAmount);
+      if (r.profitPct != null && r.profitPct !== '' && Number.isFinite(Number(r.profitPct))) e.profitPct = Number(r.profitPct);
+      if (!e.ticker && r.ticker) e.ticker = r.ticker;
+      if (!e.market && r.market) e.market = String(r.market).toUpperCase();
+      if (!e.currency && r.currency) e.currency = String(r.currency).toUpperCase();
+      if (nm.length > e.name.length) e.name = nm; // 더 완전한 종목명 채택
+    });
+
+    const out = [];
+    by.forEach(function (e) {
+      const usd = e.currency === 'USD' || e.market === 'US';
+      // 직접 읽은 수량/평단가를 신뢰. 평단가가 화면에 없을 때만(평가 탭 단독 등) 역산.
+      let avg = e.avg;
+      if ((!avg || avg <= 0) && !usd && e.evalAmount > 0 && e.profitPct != null && e.shares > 0) {
+        avg = Math.round((e.evalAmount / (1 + e.profitPct / 100)) / e.shares);
+      }
+      const nm2 = (typeof window.normalizeName === 'function') ? window.normalizeName(e.name) : { name: e.name, y: null };
       out.push({
-        name: norm.name || rawName,
-        y: buildSymbol(r, usd, norm.y),
+        name: nm2.name || e.name,
+        y: buildSymbol(e, usd, nm2.y),
         usd: usd,
-        shares: Number.isFinite(shares) && shares > 0 ? shares : null,
-        avg: Number.isFinite(avg) && avg > 0 ? avg : null,
+        shares: e.shares > 0 ? e.shares : null,
+        avg: avg > 0 ? avg : null,
       });
     });
     return out.filter(function (d) { return d.name; });
