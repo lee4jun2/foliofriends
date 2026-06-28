@@ -11,8 +11,10 @@
  * 반환: [{ name, y, usd, shares, avg }]  (OCR_DRAFTS와 동일한 형식)
  */
 (function () {
-  // flash-lite: 비전 정확도 동등 + 무료 한도가 훨씬 큼(2.5-flash는 무료 20회/일이라 금방 소진).
-  const MODEL = 'gemini-2.5-flash-lite';
+  // 2.5-flash: 수량/평단가 필드 구분이 정확(여러 화면에서 14/14 검증).
+  // flash-lite는 한도가 크지만 평단가를 수량 필드에 넣는 오류가 잦아 부적합.
+  // (2.5-flash 무료 한도 RPD 20 → 초과 시 친화적 안내 + 직접 입력으로 폴백)
+  const MODEL = 'gemini-2.5-flash';
   const ENDPOINT = (key) =>
     'https://generativelanguage.googleapis.com/v1beta/models/' + MODEL + ':generateContent?key=' + encodeURIComponent(key);
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -73,11 +75,14 @@
     '- name: 종목명 그대로 (예: 삼성전자, SK하이닉스, NVDA, TIGER 미국S&P500)',
     '- market: 한국 종목 "KR", 미국 종목 "US"',
     '- ticker: 시세조회용 코드(네 지식으로). 미국=티커(NVDA,TSLA,AAPL), 한국=6자리코드(삼성전자 005930). 모르면 빈 문자열.',
-    '- shares: 종목명 바로 아래의 "N주" 또는 "N좌" 수량 (보일 때만)',
-    '- avg: 종목명 바로 아래의 작은 글씨 "평단가"(매입평균가). 우측의 큰 현재가가 절대 아니다 (보일 때만)',
+    '- shares: 숫자 뒤에 "주" 또는 "좌"가 명시된 수량만. (예: "109주"→109, "9,276좌"→9276)',
+    '    ★ 숫자 뒤에 주/좌가 없으면 그것은 절대 shares가 아니다. 그럴 땐 shares를 비워둬라.',
+    '- avg: 종목명 바로 아래에 있는 "평단가"(매입평균가) 금액. 원 또는 $ 단위.',
+    '    ★ 이 금액(평단가)을 절대 shares에 넣지 마라. 우측의 큰 현재가도 avg가 아니다.',
     '- currency: 가격이 $면 "USD", 원이면 "KRW"',
     '- evalAmount: 우측의 큰 "평가금액"(원 단위 정수) (보일 때만)',
     '- profitPct: 우측 괄호 안 수익률 %(부호 포함, 예 -10.44) (보일 때만)',
+    '한 종목 행에는 보통 [주/좌 수량] 또는 [평단가 금액] 중 하나만 보인다. 보이는 쪽만 채워라.',
     '숫자는 한 자리씩 또박또박 정확히 읽어라. 비슷한 숫자(1/4/7, 0/6/9) 혼동 금지.',
     '어떤 종목 행도 빠뜨리지 마라. JSON 배열로만 답하라.',
   ].join('\n');
@@ -117,21 +122,30 @@
   const _n = (v) => { const x = Number(v); return Number.isFinite(x) ? x : 0; };
 
   // 이미지 한 장 → Gemini 호출 → 행 배열. 503(혼잡)은 재시도, 429(한도)는 QUOTA 에러.
-  async function callOne(key, b64) {
+  async function callOne(key, b64, onWait) {
     const body = {
       contents: [{ parts: [{ text: PROMPT }, { inline_data: { mime_type: 'image/jpeg', data: b64 } }] }],
       generationConfig: { temperature: 0, responseMimeType: 'application/json', responseSchema: SCHEMA },
     };
     let res;
-    for (let attempt = 0; attempt < 3; attempt++) {
+    for (let attempt = 0; attempt < 4; attempt++) {
       res = await fetch(ENDPOINT(key), {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
       });
       if (res.ok) break;
-      if (res.status === 503 && attempt < 2) { await sleep(1200 * (attempt + 1)); continue; } // 일시 혼잡 → 재시도
+      if (res.status === 503 && attempt < 3) { await sleep(1200 * (attempt + 1)); continue; } // 일시 혼잡 → 재시도
       let msg = 'HTTP ' + res.status;
       try { const j = await res.json(); if (j.error && j.error.message) msg = j.error.message; } catch (e) {}
-      if (res.status === 429 || /quota|exceeded|RESOURCE_EXHAUSTED/i.test(msg)) throw _capError('무료 AI 한도가 잠시 소진됐어요. 잠시 후 다시 시도하거나 직접 입력해 주세요.', 'QUOTA');
+      const isQuota = res.status === 429 || /quota|exceeded|RESOURCE_EXHAUSTED/i.test(msg);
+      // 429는 보통 분당 제한(burst) — 안내된 대기시간만큼 쉬고 자동 재시도.
+      if (isQuota && attempt < 2) {
+        const m = /in\s+([\d.]+)s/i.exec(msg);
+        const sec = m ? Math.min(30, Math.ceil(parseFloat(m[1])) + 1) : 16;
+        if (onWait) onWait(sec);
+        await sleep(sec * 1000);
+        continue;
+      }
+      if (isQuota) throw _capError('AI가 잠시 바빠요(무료 한도). 잠깐 뒤 다시 시도하거나 직접 입력해 주세요.', 'QUOTA');
       throw new Error('Gemini 호출 실패: ' + msg);
     }
     const json = await res.json();
@@ -161,7 +175,7 @@
       u.count += 1; u.last = Date.now(); _save(u);
       if (onProgress) onProgress(files.length > 1 ? ('화면 ' + (i + 1) + '/' + files.length + ' 읽는 중…') : 'AI가 종목을 읽고 있어요…');
       const b64 = await fileToBase64(files[i]);
-      const rows = await callOne(key, b64);
+      const rows = await callOne(key, b64, function (sec) { if (onProgress) onProgress('AI가 잠시 바빠요 · ' + sec + '초 후 자동 재시도…'); });
       for (const r of rows) allRows.push(r);
     }
     return mergeRows(allRows);
@@ -178,8 +192,12 @@
       if (!k) return;
       let e = by.get(k);
       if (!e) { e = { name: nm, market: '', ticker: '', shares: 0, avg: 0, currency: '', evalAmount: 0, profitPct: null }; by.set(k, e); }
-      if (_n(r.shares) > 0) e.shares = _n(r.shares);
-      if (_n(r.avg) > 0) { e.avg = _n(r.avg); if (r.currency) e.currency = String(r.currency).toUpperCase(); }
+      let rShares = _n(r.shares), rAvg = _n(r.avg);
+      // 모델 보정: 시세 화면의 평단가(금액)를 shares에 잘못 넣는 경우
+      // (수량은 보통 평가 화면에만 있고, 시세 행은 통화·가격만 있음) → avg로 이동.
+      if (rShares > 0 && rAvg <= 0 && r.currency && _n(r.evalAmount) <= 0) { rAvg = rShares; rShares = 0; }
+      if (rShares > 0) e.shares = rShares;
+      if (rAvg > 0) { e.avg = rAvg; if (r.currency) e.currency = String(r.currency).toUpperCase(); }
       if (_n(r.evalAmount) > 0) e.evalAmount = _n(r.evalAmount);
       if (r.profitPct != null && r.profitPct !== '' && Number.isFinite(Number(r.profitPct))) e.profitPct = Number(r.profitPct);
       if (!e.ticker && r.ticker) e.ticker = r.ticker;
